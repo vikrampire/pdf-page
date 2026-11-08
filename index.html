@@ -666,34 +666,72 @@
 
   // group pdf.js text items into lines, then lines into paragraph blocks (PDF coordinates)
   function buildBlocks(items) {
-    const its = items.filter(it => it.str && it.str.trim()).map(it => {
-      const [a, b, , , e, f] = it.transform;
-      const fs = Math.hypot(a, b) || 10;
-      return { s: it.str, x: e, y: f, w: it.width || it.str.length * fs * 0.5, fs, fn: it.fontName };
-    });
-    its.sort((p, q) => (q.y - p.y) || (p.x - q.x));
-    const lines = [];
-    for (const it of its) {
-      const L = lines[lines.length - 1];
-      if (L && Math.abs(L.y - it.y) < Math.min(L.fs, it.fs) * 0.5 && it.x >= L.x2 - it.fs && it.x - L.x2 < it.fs * 2.5) {
-        L.s += (it.x - L.x2 > it.fs * 0.15 && !L.s.endsWith(" ") && !it.s.startsWith(" ") ? " " : "") + it.s;
-        L.x2 = Math.max(L.x2, it.x + it.w); L.fs = Math.max(L.fs, it.fs);
-      } else lines.push({ s: it.s, x: it.x, x2: it.x + it.w, y: it.y, fs: it.fs, fn: it.fn });
+    // 1) text pieces (horizontal only; rotated/vertical text is left as it is on the page)
+    const its = [];
+    for (const it of items) {
+      if (!it.str || !it.str.trim()) continue;
+      const [a, b, c, d, e, f] = it.transform;
+      const fs = Math.hypot(a, b) || Math.abs(d) || 10;
+      if (Math.abs(b) > fs * 0.05 || Math.abs(c) > fs * 0.05 || a < 0) continue;
+      its.push({ s: it.str, x: e, y: f, w: it.width || it.str.length * fs * 0.5, fs, fn: it.fontName });
     }
+    // 2) rows: pieces whose baselines are close belong to the same visual line, whatever order the PDF stored them in
+    its.sort((p, q) => q.y - p.y);
+    const rows = [];
+    for (const it of its) {
+      let row = null;
+      for (let k = rows.length - 1; k >= 0 && k >= rows.length - 4; k--) {
+        if (Math.abs(rows[k].y - it.y) < Math.min(rows[k].fs, it.fs) * 0.45) { row = rows[k]; break; }
+      }
+      if (row) { row.items.push(it); row.fs = Math.max(row.fs, it.fs); }
+      else rows.push({ y: it.y, fs: it.fs, items: [it] });
+    }
+    // 3) inside a row: left → right; a wide gap starts a new segment (table columns, dot leaders, page numbers)
+    const lines = [];
+    for (const row of rows) {
+      row.items.sort((p, q) => p.x - q.x);
+      let seg = null;
+      for (const it of row.items) {
+        if (seg && it.x + it.w <= seg.x2 + it.fs * 0.2 && it.x >= seg.x - 1) {    // duplicate / over-printed piece
+          continue;
+        }
+        const gap = seg ? it.x - seg.x2 : 0;
+        if (seg && gap < Math.max(seg.fs, it.fs) * 1.2) {
+          seg.s += (gap > it.fs * 0.15 && !seg.s.endsWith(" ") && !it.s.startsWith(" ") ? " " : "") + it.s;
+          seg.x2 = Math.max(seg.x2, it.x + it.w); seg.fs = Math.max(seg.fs, it.fs); seg.y = Math.min(seg.y, it.y);
+        } else {
+          seg = { s: it.s, x: it.x, x2: it.x + it.w, y: it.y, fs: it.fs, fn: it.fn };
+          lines.push(seg);
+        }
+      }
+    }
+    // 4) paragraphs: a line joins the block whose last line sits right above it (normal line spacing, same size, same column)
+    lines.sort((p, q) => (q.y - p.y) || (p.x - q.x));
     const sizes = lines.map(l => l.fs).sort((a, b) => a - b);
     const body = sizes[Math.floor(sizes.length / 2)] || 10;
     const blocks = [];
     for (const L of lines) {
-      const B = blocks[blocks.length - 1];
-      const gap = B ? B.lastY - L.y : 0;
       const heading = L.fs > body * 1.5 || L.fs >= 16;          // big titles: one line = one block (keeps each line's colour)
-      if (B && !heading && !B.heading && gap > 0 && gap < Math.max(B.fs, L.fs) * 1.9 && Math.abs(L.fs - B.fs) < B.fs * 0.25 &&
-          L.x < B.x2 && L.x2 > B.x1) {
+      let B = null;
+      if (!heading) {
+        for (let k = blocks.length - 1; k >= 0; k--) {
+          const c = blocks[k];
+          if (c.heading) continue;
+          const gap = c.lastY - L.y;
+          if (gap > Math.max(c.fs, L.fs) * 2.2) continue;
+          const sameCol = Math.abs(L.x - c.lastX) < c.fs * 2 || Math.abs((L.x + L.x2) / 2 - (c.lastX + c.lastX2) / 2) < c.fs;
+          if (gap >= Math.max(c.fs, L.fs) * 0.8 && gap < Math.max(c.fs, L.fs) * 1.9 && Math.abs(L.fs - c.fs) < c.fs * 0.25 &&
+              sameCol && L.x < c.lastX2 && L.x2 > c.lastX && L.s.replace(/[.\s·…_-]/g, "").length > 0) { B = c; break; }
+        }
+      }
+      if (B) {
         B.s += (B.s.endsWith("-") ? "" : " ") + L.s.trim();
-        B.x1 = Math.min(B.x1, L.x); B.x2 = Math.max(B.x2, L.x2); B.lastY = L.y; B.y1 = L.y - L.fs * 0.25;
+        B.x1 = Math.min(B.x1, L.x); B.x2 = Math.max(B.x2, L.x2); B.lastY = L.y; B.lastX = L.x; B.lastX2 = L.x2; B.y1 = L.y - L.fs * 0.25;
         B.lines.push([L.x, L.x2]);
-      } else blocks.push({ s: L.s.trim(), x1: L.x, x2: L.x2, y2: L.y + L.fs * 0.95, y1: L.y - L.fs * 0.25, lastY: L.y, fs: L.fs, fn: L.fn, heading, lines: [[L.x, L.x2]] });
+      } else blocks.push({ s: L.s.trim(), x1: L.x, x2: L.x2, y2: L.y + L.fs * 0.95, y1: L.y - L.fs * 0.25, lastY: L.y, lastX: L.x, lastX2: L.x2,
+                           fs: L.fs, fn: L.fn, heading, lines: [[L.x, L.x2]] });
     }
+    blocks.sort((p, q) => (q.y2 - p.y2) || (p.x1 - q.x1));       // reading order
     const spread = a => Math.max(...a) - Math.min(...a);
     return blocks.filter(b => b.s.length > 0).map(b => {
       let al = "";
@@ -774,13 +812,16 @@
     const job = (async () => {
       const id = "L|" + key;
       const rec = await trGet(id);
-      if (rec && rec.tr && rec.v === 2) return rec;   // older results (merged titles / romanised) get redone once
+      if (rec && rec.tr && rec.v === 3) return rec;   // older results (merged titles / romanised) get redone once
       const page = await pdf.getPage(n);
       const tc = await page.getTextContent();
       const blocks = buildBlocks(tc.items);
       if (!blocks.length || blocks.map(b => b.s).join("").replace(/\s/g, "").length < 15) return { id, empty: true };
-      const tr = await translateBlocks(blocks.map(b => b.s));
-      const out = { id, v: 2, blocks: blocks.map(b => ({ r: b.r, fs: b.fs, fn: b.fn, al: b.al })), tr, model: getModel(), at: Date.now() };
+      const plain = s => !/[A-Za-z\u00C0-\u024F]{2,}/.test(s);        // only numbers, dots, symbols → keep as is
+      const todo = blocks.map((b, i) => plain(b.s) ? -1 : i).filter(i => i >= 0);
+      const got = todo.length ? await translateBlocks(todo.map(i => blocks[i].s)) : [];
+      const tr = blocks.map(b => b.s); todo.forEach((i, k) => { tr[i] = got[k]; });
+      const out = { id, v: 3, blocks: blocks.map(b => ({ r: b.r, fs: b.fs, fn: b.fn, al: b.al, k: plain(b.s) ? 1 : 0 })), tr, model: getModel(), at: Date.now() };
       await trPut(out);
       return out;
     })();
@@ -834,6 +875,7 @@
     const dpr = canvas.width / parseFloat(canvas.style.width);
     ovl.replaceChildren();
     rec.blocks.forEach((b, i) => {
+      if (b.k) return;                                   // numbers / dot leaders: original stays visible
       const [x1, y1, x2, y2] = b.r;
       const p1 = vp1.convertToViewportPoint(x1, y2), p2 = vp1.convertToViewportPoint(x2, y1);
       const cw = parseFloat(canvas.style.width), ch = canvas.height / dpr;
