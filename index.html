@@ -224,6 +224,7 @@
     <button data-open="refBox"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8a2 2 0 0 1 2 2v14l-6-3-6 3V6a2 2 0 0 1 2-2z"/></svg><span>Referred pages<span class="sub">Claude da jawab paste karo, pages aape labhange</span></span></button>
     <button data-open="exBox" id="exMenu"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg><span>Pages kaddo<span class="sub">Chune pages di navi PDF — download ja share</span></span></button>
     <button id="pairMenu"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg><span><span id="pairMenuText">ਗੁਰਮੁਖੀ PDF jodo</span><span class="sub">Same page number te ਗੁਰਮੁਖੀ wali PDF</span></span></button>
+    <button data-open="bookBox"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg><span>Poori kitaab tayaar karo<span class="sub">Saare pages pehlan hi ਪੰਜਾਬੀ vich — fer turant te offline</span></span></button>
     <button data-open="setBox"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>Settings<span class="sub">ਅਨੁਵਾਦ, model te server</span></span></button>
   </div>
 </details>
@@ -262,6 +263,14 @@
     <button class="btn ghost" id="exShare" style="flex:1">Share</button>
   </div>
   <p class="hint" id="exMsg"></p>
+</details>
+
+<details class="sheet" id="bookBox"><summary></summary>
+  <div class="sh-head"><span>Poori kitaab tayaar karo</span><button class="icon" data-close aria-label="Band karo"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <p class="hint" id="bkInfo">WiFi te app khuli rakho. Jo pages pehlan tayaar ne, oh dubara nahi bande.</p>
+  <div style="height:8px;border-radius:8px;background:var(--soft);overflow:hidden;margin:12px 0"><div id="bkBar" style="height:100%;width:0;background:var(--accent);transition:width .3s"></div></div>
+  <p class="hint" id="bkMsg"></p>
+  <button class="btn" id="bkGo" style="width:100%;margin-top:8px">Shuru karo</button>
 </details>
 
 <details class="sheet" id="setBox"><summary></summary>
@@ -770,7 +779,19 @@
     if (!Array.isArray(arr) || arr.length !== texts.length) return null;
     return arr.map(x => String(x));
   }
+  // split a page into a few chunks and translate them at the same time (≈2-3× faster on long pages)
   async function translateBlocks(texts) {
+    const chunks = []; let cur = [], len = 0;
+    for (let i = 0; i < texts.length; i++) {
+      if (cur.length && len + texts[i].length > 1400) { chunks.push(cur); cur = []; len = 0; }
+      cur.push(i); len += texts[i].length;
+    }
+    if (cur.length) chunks.push(cur);
+    const parts = await Promise.all(chunks.map(ix => translateChunk(ix.map(i => texts[i]))));
+    const out = []; chunks.forEach((ix, k) => ix.forEach((i, j) => { out[i] = parts[k][j]; }));
+    return out;
+  }
+  async function translateChunk(texts) {
     const need = gurmukhiRatio(texts) < 0.5 ? 0.6 : 0;               // English source → answer must be mostly Gurmukhi
     const tries = [[getModel(), false], [getModel(), true], [FALLBACK_MODEL, true]];
     let last = null;
@@ -829,9 +850,36 @@
     job.finally(() => inflight.delete(key));
     return job;
   }
-  function prefetch(n) {
-    if (!trOn || trMode() !== "layout" || !pdf || n > pdf.numPages || !navigator.onLine) return;
-    ensureLayout(n).catch(() => {});
+  let prefetchRun = 0;
+  async function prefetch(n) {
+    const run = ++prefetchRun, id = currentId, pair = onPair;
+    for (let k = n; k < n + 3; k++) {
+      if (run !== prefetchRun || !trOn || trMode() !== "layout" || !pdf || k > pdf.numPages || !navigator.onLine) return;
+      if (id !== currentId || pair !== onPair) return;
+      try { await ensureLayout(k); } catch (_) { return; }
+    }
+  }
+
+  /* ---------- prepare the whole book in the background ---------- */
+  let bookRun = null;
+  async function prepareBook() {
+    if (!pdf || !currentId) { $("bkMsg").textContent = "Pehle kitaab kholo."; return; }
+    if (bookRun) { bookRun.stop = true; return; }
+    const job = bookRun = { stop: false }, total = pdf.numPages, id = currentId;
+    $("bkGo").textContent = "Roko";
+    let done = 0, fail = 0, next = 1;
+    const worker = async () => {
+      while (!job.stop && next <= total && id === currentId && !onPair) {
+        const k = next++;
+        try { await ensureLayout(k); } catch (_) { fail++; if (fail > 8) job.stop = true; }
+        done++;
+        $("bkBar").style.width = (100 * done / total) + "%";
+        $("bkMsg").textContent = done + " / " + total + " pages tayaar" + (fail ? " · " + fail + " fail" : "");
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    bookRun = null; $("bkGo").textContent = "Shuru karo";
+    if (!job.stop && done >= total) $("bkMsg").textContent = "✅ Poori kitaab tayaar — hun internet bina vi har page ਪੰਜਾਬੀ vich khulega.";
   }
 
   // colour of the text inside a block = average of the clearly-ink pixels (not anti-aliased edges, not background)
@@ -1106,7 +1154,7 @@
 
   /* ---------- immersive reading: bars auto-hide, tap / swipe / hold ---------- */
   let chromeTimer = null;
-  const anySheetOpen = () => ["moreBox", "libBox", "refBox", "exBox", "setBox"].some(id => $(id) && $(id).open);
+  const anySheetOpen = () => ["moreBox", "libBox", "refBox", "exBox", "setBox", "bookBox"].some(id => $(id) && $(id).open);
   function showChrome(ms = 3000) {
     document.body.classList.add("chrome");
     clearTimeout(chromeTimer);
@@ -1164,7 +1212,14 @@
   });
 
   /* ---------- sheets ---------- */
-  const SHEETS = ["moreBox", "libBox", "refBox", "exBox", "setBox"];
+  const SHEETS = ["moreBox", "libBox", "refBox", "exBox", "setBox", "bookBox"];
+  $("bkGo").onclick = () => prepareBook();
+  $("bookBox").addEventListener("toggle", () => {
+    if (!$("bookBox").open || !pdf) return;
+    if (!bookRun) $("bkMsg").textContent = "";
+    const rupees = Math.max(1, Math.round(pdf.numPages * 0.06));
+    $("bkInfo").textContent = pdf.numPages + " pages · andaza kharcha lagbhag ₹" + rupees + " (DeepSeek naal) · WiFi te app khuli rakho. Jo pages pehlan tayaar ne, oh dubara nahi bande.";
+  });
   function syncScrim() { $("scrim").classList.toggle("on", SHEETS.some(id => $(id).open)); showChrome(); }
   function openSheet(id) { SHEETS.forEach(s => { if (s !== id) $(s).open = false; }); $(id).open = true; syncScrim(); }
   SHEETS.forEach(id => $(id).addEventListener("toggle", syncScrim));
