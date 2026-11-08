@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PDF Page Kholo</title>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#c2410c">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f5f4">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e0e10">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 
@@ -71,133 +72,209 @@
 //# sourceMappingURL=pdf-lib.min.js.map
 </script>
 <style>
-  :root { --bg:#f6f5f2; --card:#fff; --ink:#1d1d1b; --muted:#6b6b66; --accent:#c2410c; --line:#e3e1db; --chip:#fde7d9; }
+  :root { --bg:#f5f5f4; --surface:#ffffff; --ink:#18181b; --muted:#71717a; --line:#e4e4e7; --soft:#f4f4f5; --accent:#c2410c; --accent-ink:#fff; --shadow:0 1px 2px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.08); }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#161615; --card:#222220; --ink:#f1efe9; --muted:#a3a19a; --accent:#fb923c; --line:#3a3936; --chip:#4a2a17; }
+    :root { --bg:#0e0e10; --surface:#18181b; --ink:#f4f4f5; --muted:#a1a1aa; --line:#2a2a30; --soft:#232328; --accent:#f97316; --accent-ink:#111; --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.5); }
   }
-  * { box-sizing:border-box; }
-  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--ink); }
-  header { position:sticky; top:0; z-index:5; background:var(--card); border-bottom:1px solid var(--line); padding:10px 12px; }
-  h1 { font-size:16px; margin:0 0 8px; }
-  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  label.file { flex:1 1 100%; display:block; padding:10px; border:1.5px dashed var(--line); border-radius:10px; text-align:center; color:var(--muted); cursor:pointer; font-size:14px; }
-  label.file input { display:none; }
-  input[type=number] { flex:1; min-width:0; font-size:18px; padding:9px 12px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--ink); }
-  input.small { flex:0 0 70px; font-size:15px; padding:6px 8px; }
-  button { font-size:16px; padding:9px 14px; border:0; border-radius:10px; background:var(--accent); color:#fff; font-weight:600; cursor:pointer; }
-  button.ghost { background:transparent; color:var(--ink); border:1px solid var(--line); }
-  button.tiny { font-size:13px; padding:6px 10px; }
-  button:disabled { opacity:.4; }
-  #info { font-size:13px; color:var(--muted); margin-top:6px; min-height:16px; }
-  details { margin-top:8px; border:1px solid var(--line); border-radius:10px; padding:6px 10px; }
-  summary { font-size:14px; font-weight:600; cursor:pointer; padding:4px 0; }
-  textarea { width:100%; height:110px; font-size:14px; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); margin:6px 0; }
-  .hint { font-size:12px; color:var(--muted); }
-  #chips { display:flex; gap:6px; overflow-x:auto; padding:6px 0 2px; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; }
+  body { font:15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Gurmukhi", sans-serif; background:var(--bg); color:var(--ink);
+         padding-bottom:calc(72px + env(safe-area-inset-bottom)); }
+  button { font:inherit; color:inherit; background:none; border:0; cursor:pointer; }
+  button:disabled { opacity:.35; cursor:default; }
+  input, select, textarea { font:inherit; color:var(--ink); background:var(--soft); border:1px solid transparent; border-radius:10px; padding:10px 12px; width:100%; outline:none; }
+  input:focus, select:focus, textarea:focus { border-color:var(--line); background:var(--surface); }
+  .icon { width:40px; height:40px; display:inline-grid; place-items:center; border-radius:10px; color:var(--ink); flex:0 0 auto; }
+  .icon:active { background:var(--soft); }
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; height:40px; padding:0 16px; border-radius:10px; font-weight:600; font-size:14px; background:var(--ink); color:var(--surface); }
+  .btn.ghost { background:var(--soft); color:var(--ink); }
+  .hint { font-size:13px; color:var(--muted); }
+  .row { display:flex; gap:8px; align-items:center; }
+  .wrap { flex-wrap:wrap; }
+
+  /* app bar */
+  .appbar { position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:4px; padding:calc(6px + env(safe-area-inset-top)) 6px 6px;
+            background:color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border-bottom:1px solid var(--line); }
+  .titlebox { flex:1; min-width:0; padding:0 4px; }
+  #fileName { font-weight:600; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #info { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-height:16px; }
+  #fileLabel input, #file { display:none; }
+
+  /* reference strip */
+  #refStrip { padding:8px 12px 0; }
+  #chips { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; }
+  #chips::-webkit-scrollbar { display:none; }
   #chips:empty { display:none; }
-  .chip { flex:0 0 auto; font-size:14px; padding:5px 10px; border-radius:999px; background:var(--chip); color:var(--ink); border:1px solid transparent; cursor:pointer; font-weight:500; }
-  .chip.on { border-color:var(--accent); background:var(--accent); color:#fff; }
-  #ctx { font-size:13px; line-height:1.45; background:var(--bg); border-left:3px solid var(--accent); padding:6px 8px; margin-top:6px; border-radius:4px; max-height:72px; overflow:auto; }
+  .chip { flex:0 0 auto; font-size:13px; font-weight:600; padding:6px 12px; border-radius:999px; background:var(--surface); border:1px solid var(--line); }
+  .chip.on { background:var(--ink); color:var(--surface); border-color:var(--ink); }
+  #ctx { font-size:13px; color:var(--muted); line-height:1.45; padding:6px 2px 0; max-height:60px; overflow:auto; }
   #ctx:empty { display:none; }
-  #lib { display:flex; flex-direction:column; gap:6px; margin:4px 0; max-height:180px; overflow:auto; }
-  .item { display:flex; align-items:center; gap:6px; }
-  .item .name { flex:1; min-width:0; text-align:left; background:var(--bg); color:var(--ink); border:1px solid var(--line); font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .item .name.on { border-color:var(--accent); }
-  .item .del { flex:0 0 auto; background:transparent; color:var(--muted); border:1px solid var(--line); font-size:13px; padding:8px 10px; }
-  .item .del.sure { background:#b91c1c; color:#fff; border-color:#b91c1c; }
-  #trCard { width:100%; max-width:1000px; background:var(--card); border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:8px; padding:12px 14px; margin-bottom:12px; font-size:18px; line-height:1.75; white-space:pre-wrap; }
-  #trCard .trHead { font-size:12px; color:var(--muted); margin-bottom:6px; display:flex; gap:8px; align-items:center; white-space:normal; }
+
+  /* page */
+  main { padding:12px 8px; display:flex; justify-content:center; }
+  #view { width:100%; display:flex; flex-direction:column; align-items:center; }
+  canvas { max-width:100%; height:auto; background:#fff; box-shadow:var(--shadow); border-radius:2px; }
   .pgwrap { position:relative; display:inline-block; line-height:0; }
   .pgwrap canvas { display:block; }
   .ovl { position:absolute; inset:0; line-height:normal; transition:opacity .15s; }
   .ovl.hide { opacity:0; }
   .ovl .blk { position:absolute; overflow:hidden; color:#111; font-family:"Noto Sans Gurmukhi","Raavi","Mukta Mahee",sans-serif; line-height:1.25; white-space:pre-wrap; word-break:break-word; }
-  #ovlBar { position:sticky; bottom:8px; margin-top:8px; font-size:13px; background:var(--card); border:1px solid var(--line); border-radius:999px; padding:6px 12px; color:var(--muted); line-height:1.4; text-align:center; max-width:90%; }
-  #view { width:100%; display:flex; flex-direction:column; align-items:center; }
-  button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
-  main { padding:12px; display:flex; justify-content:center; }
-  canvas { max-width:100%; height:auto; background:#fff; box-shadow:0 2px 12px rgba(0,0,0,.15); border-radius:4px; }
-  .empty { color:var(--muted); text-align:center; margin-top:40px; line-height:1.6; }
+  #trCard { width:100%; max-width:1000px; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:12px; font-size:18px; line-height:1.75; white-space:pre-wrap; }
+  #trCard .trHead { font-size:12px; color:var(--muted); margin-bottom:6px; display:flex; gap:8px; align-items:center; white-space:normal; }
+  #trCard .trHead button { margin-left:auto; font-size:13px; padding:2px 8px; border-radius:8px; background:var(--soft); }
+  #ovlBar { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(76px + env(safe-area-inset-bottom)); z-index:15; font-size:12px;
+            background:var(--surface); color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:6px 8px 6px 14px; box-shadow:var(--shadow);
+            display:flex; align-items:center; gap:6px; max-width:92vw; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.4; }
+  #ovlBar button { font-size:13px; padding:2px 8px; border-radius:999px; background:var(--soft); color:var(--ink); }
+
+  /* empty state */
+  .empty { margin-top:18vh; text-align:center; color:var(--muted); display:flex; flex-direction:column; align-items:center; gap:14px; }
+  .empty p { margin:0; max-width:260px; }
+
+  /* bottom toolbar */
+  .toolbar { position:fixed; left:0; right:0; bottom:0; z-index:20; display:flex; align-items:center; gap:4px; padding:8px 8px calc(8px + env(safe-area-inset-bottom));
+             background:color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border-top:1px solid var(--line); }
+  .pager { flex:1; display:flex; align-items:center; justify-content:center; gap:2px; min-width:0; }
+  #num { width:64px; text-align:center; font-weight:600; padding:8px 4px; -moz-appearance:textfield; }
+  #num::-webkit-outer-spin-button, #num::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  #total { color:var(--muted); font-size:14px; min-width:42px; }
+  .toggle { height:40px; padding:0 12px; border-radius:10px; font-weight:600; font-size:14px; background:var(--soft); }
+  .toggle.on { background:var(--accent); color:var(--accent-ink); }
+  #go { display:none; }
+
+  /* sheets (bottom drawers) */
+  #scrim { position:fixed; inset:0; z-index:30; background:rgba(0,0,0,.35); opacity:0; pointer-events:none; transition:opacity .2s; }
+  #scrim.on { opacity:1; pointer-events:auto; }
+  details.sheet > summary { display:none; }
+  details.sheet { position:fixed; left:0; right:0; bottom:0; z-index:40; max-height:82vh; overflow:auto; background:var(--surface); border-radius:18px 18px 0 0;
+                  padding:6px 16px calc(18px + env(safe-area-inset-bottom)); box-shadow:0 -8px 30px rgba(0,0,0,.18); }
+  details.sheet:not([open]) { display:none; }
+  .sh-head { position:sticky; top:0; background:var(--surface); display:flex; align-items:center; justify-content:space-between; padding:8px 0 10px; font-weight:700; font-size:16px; }
+  .sh-head::before { content:""; position:absolute; top:0; left:50%; transform:translateX(-50%); width:36px; height:4px; border-radius:4px; background:var(--line); }
+  .field { margin:10px 0; }
+  .field > label { display:block; font-size:12px; font-weight:600; color:var(--muted); margin-bottom:6px; text-transform:none; }
+  textarea { height:130px; resize:vertical; }
+  .menu button { width:100%; display:flex; align-items:center; gap:14px; padding:14px 6px; border-radius:12px; font-size:15px; text-align:left; }
+  .menu button:active { background:var(--soft); }
+  .menu .sub { display:block; font-size:12px; color:var(--muted); }
+
+  /* library */
+  #lib { display:flex; flex-direction:column; }
+  .item { display:flex; align-items:center; gap:4px; border-bottom:1px solid var(--line); }
+  .item:last-child { border-bottom:0; }
+  .item .name { flex:1; min-width:0; text-align:left; padding:14px 4px; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .item .name.on { font-weight:700; }
+  .item .del { font-size:13px; color:var(--muted); padding:8px 10px; border-radius:8px; }
+  .item .del.sure { background:#dc2626; color:#fff; }
+  input[type=checkbox] { width:auto; }
 </style>
 </head>
 <body>
-<header>
-  <h1>📄 PDF Page Kholo</h1>
-  <label class="file" id="fileLabel"><span id="fileName">PDF choose karo (tap here)</span>
-    <input type="file" id="file" accept="application/pdf">
-  </label>
-  <details id="libBox">
-    <summary>📚 Meri PDFs (<span id="libCount">0</span>)</summary>
-    <div id="lib"></div>
-    <p class="hint" id="libNote" style="margin:6px 0 2px">Jo PDF tusi chunoge, oh ethe aape save ho jayegi.</p>
-  </details>
-  <div class="row" style="margin-top:8px">
-    <button class="ghost" id="prev" disabled>◀</button>
-    <input type="number" id="num" min="1" placeholder="Page no." inputmode="numeric" disabled>
-    <button id="go" disabled>Kholo</button>
-    <button class="ghost" id="next" disabled>▶</button>
+<header class="appbar">
+  <button class="icon" id="libBtn" aria-label="Meri PDFs"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H9v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M9 4h4v16H9z"/><path d="m14 5 3.5-1 3 15-3.5 1z"/></svg></button>
+  <div class="titlebox">
+    <div id="fileName">PDF Page Kholo</div>
+    <div id="info"></div>
   </div>
-  <div class="row" id="pairRow" style="margin-top:6px;display:none">
-    <button class="tiny" id="pairBtn">+ ਗੁਰਮੁਖੀ PDF jodo</button>
-    <button class="tiny ghost" id="pairChange" style="display:none">🔗 badlo</button>
-    <input type="file" id="pairFile" accept="application/pdf" style="display:none">
-    <button class="tiny ghost" id="trBtn" style="margin-left:auto">ਪੰਜਾਬੀ ਵਿੱਚ ਪੜ੍ਹੋ</button>
-  </div>
-  <div id="info"></div>
-
-  <details id="refBox">
-    <summary>📋 Claude da jawab paste karo (referred pages)</summary>
-    <textarea id="refText" placeholder="Ethe poora jawab paste karo jisde vich 'page 45', 'p. 12', 'pp. 30-32', 'ਪੰਨਾ 45' ... likheya hove"></textarea>
-    <div class="row">
-      <button class="tiny" id="extract">Pages labho</button>
-      <button class="tiny ghost" id="clearRefs">Clear</button>
-      <span class="hint" style="margin-left:auto">Page farak:</span>
-      <input type="number" class="small" id="offset" value="0" inputmode="numeric">
-    </div>
-    <p class="hint" style="margin:6px 0 2px">Page farak: je kitaab da page 1 PDF de page 13 te hai, taan ethe 12 likho.</p>
-  </details>
-  <div id="chips"></div>
-  <div id="ctx"></div>
-  <details id="exBox" style="display:none">
-    <summary>📤 Pages kaddo (navi PDF)</summary>
-    <p class="hint" style="margin:4px 0">Kehre pages? (jiven: 5, 12-14, 30)</p>
-    <input type="text" id="exPages" style="width:100%;font-size:16px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)">
-    <div class="row" style="margin:6px 0">
-      <button class="tiny ghost" id="exUseRefs">Referred pages</button>
-      <button class="tiny ghost" id="exUseSeen">Vekhe hoye pages</button>
-    </div>
-    <label class="hint" id="exPairLbl" style="display:none;margin:4px 0"><input type="checkbox" id="exPair"> ਗੁਰਮੁਖੀ wale pages vi naal (har English page de baad)</label>
-    <div class="row" style="margin-top:6px">
-      <button class="tiny" id="exDownload">⬇ Download</button>
-      <button class="tiny" id="exShare">📤 Share</button>
-    </div>
-    <p class="hint" id="exMsg" style="margin:6px 0 2px"></p>
-  </details>
-  <details id="setBox">
-    <summary>⚙️ Settings (ਅਨੁਵਾਦ / Mesh server)</summary>
-    <p class="hint" style="margin:4px 0">Tuhade Cloudflare server da link (jiven https://pdf-page-mesh.xxxx.workers.dev). Mesh key server vich hai, phone vich nahi.</p>
-    <input type="url" id="apiKey" placeholder="https://....workers.dev" autocomplete="off" style="width:100%;font-size:15px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)">
-    <div class="row" style="margin:6px 0">
-      <select id="model" style="flex:1;min-width:0;font-size:14px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)"><option value="">— model —</option></select>
-      <button class="tiny ghost" id="loadModels">Models lao</button>
-    </div>
-    <div class="row" style="margin:6px 0">
-      <span class="hint">ਅਨੁਵਾਦ kiven dikhe:</span>
-      <select id="trMode" style="flex:1;min-width:0;font-size:14px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)">
-        <option value="layout">Page de layout utte (same jagah)</option>
-        <option value="card">Upar vakhra card</option>
-      </select>
-    </div>
-    <div class="row">
-      <button class="tiny" id="saveKey">Save + Test</button>
-      <button class="tiny ghost" id="clearTr">Saved ਅਨੁਵਾਦ hatao</button>
-    </div>
-    <p class="hint" id="setMsg" style="margin:6px 0 2px"></p>
-  </details>
+  <label class="icon" id="fileLabel" aria-label="PDF kholo"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg><input type="file" id="file" accept="application/pdf"></label>
+  <button class="icon" id="moreBtn" aria-label="Hor"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></button>
 </header>
+
+<div id="refStrip"><div id="chips"></div><div id="ctx"></div></div>
+
 <main>
-  <div id="view"><p class="empty">Upar ton PDF chuno ya 📚 Meri PDFs kholo.<br>Page number likh ke "Kholo" dabao,<br>ya 📋 vich Claude da jawab paste karo.</p></div>
+  <div id="view">
+    <div class="empty"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+      <p>PDF kholo, page number likho, ja Claude da jawab paste karke referred pages vekho.</p>
+      <label class="btn" for="file">PDF kholo</label>
+    </div>
+  </div>
 </main>
+
+<nav class="toolbar">
+  <button class="icon" id="prev" aria-label="Pichhla page" disabled><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg></button>
+  <div class="pager">
+    <input type="number" id="num" min="1" inputmode="numeric" placeholder="—" disabled>
+    <span id="total"></span>
+  </div>
+  <button class="icon" id="next" aria-label="Agla page" disabled><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></button>
+  <button id="go" disabled>Kholo</button>
+  <span id="pairRow" style="display:none">
+    <button class="toggle" id="pairBtn" style="display:none">ਗੁਰਮੁਖੀ</button>
+    <button id="pairChange" style="display:none"></button>
+    <input type="file" id="pairFile" accept="application/pdf" style="display:none">
+  </span>
+  <button class="toggle" id="trBtn">ਪੰਜਾਬੀ</button>
+</nav>
+
+<div id="scrim"></div>
+
+<details class="sheet" id="moreBox"><summary></summary>
+  <div class="sh-head"><span>Options</span><button class="icon" data-close aria-label="Band karo"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div class="menu">
+    <button data-open="refBox"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8a2 2 0 0 1 2 2v14l-6-3-6 3V6a2 2 0 0 1 2-2z"/></svg><span>Referred pages<span class="sub">Claude da jawab paste karo, pages aape labhange</span></span></button>
+    <button data-open="exBox" id="exMenu"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg><span>Pages kaddo<span class="sub">Chune pages di navi PDF — download ja share</span></span></button>
+    <button id="pairMenu"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg><span><span id="pairMenuText">ਗੁਰਮੁਖੀ PDF jodo</span><span class="sub">Same page number te ਗੁਰਮੁਖੀ wali PDF</span></span></button>
+    <button data-open="setBox"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>Settings<span class="sub">ਅਨੁਵਾਦ, model te server</span></span></button>
+  </div>
+</details>
+
+<details class="sheet" id="libBox"><summary></summary>
+  <div class="sh-head"><span>Meri PDFs <span id="libCount" class="hint">0</span></span><button class="icon" data-close aria-label="Band karo"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div id="lib"></div>
+  <p class="hint" id="libNote">Jo PDF tusi khologe, oh ethe aape save ho jayegi.</p>
+  <label class="btn ghost" for="file" style="width:100%;margin-top:8px">+ Navi PDF</label>
+</details>
+
+<details class="sheet" id="refBox"><summary></summary>
+  <div class="sh-head"><span>Referred pages</span><button class="icon" data-close aria-label="Band karo"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div class="field"><label>Claude da jawab</label>
+    <textarea id="refText" placeholder="Poora jawab paste karo — 'page 45', 'p. 12', 'pp. 30-32', 'ਪੰਨਾ 45' sab labh jaange"></textarea></div>
+  <div class="field"><label>Page farak (offset)</label>
+    <div class="row"><input type="number" id="offset" value="0" inputmode="numeric" style="width:90px">
+    <span class="hint">Je kitaab da page 1, PDF de page 13 te hai, taan 12 likho</span></div></div>
+  <div class="row" style="margin-top:14px">
+    <button class="btn" id="extract" style="flex:1">Pages labho</button>
+    <button class="btn ghost" id="clearRefs">Clear</button>
+  </div>
+</details>
+
+<details class="sheet" id="exBox"><summary></summary>
+  <div class="sh-head"><span>Pages kaddo</span><button class="icon" data-close aria-label="Band karo"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div class="field"><label>Kehre pages (jiven 5, 12-14, 30)</label>
+    <input type="text" id="exPages"></div>
+  <div class="row wrap">
+    <button class="btn ghost" id="exUseRefs">Referred pages</button>
+    <button class="btn ghost" id="exUseSeen">Vekhe hoye pages</button>
+  </div>
+  <label class="row hint" id="exPairLbl" style="display:none;margin:12px 0"><input type="checkbox" id="exPair"> ਗੁਰਮੁਖੀ page vi naal (har English page de baad)</label>
+  <div class="row" style="margin-top:14px">
+    <button class="btn" id="exDownload" style="flex:1">Download</button>
+    <button class="btn ghost" id="exShare" style="flex:1">Share</button>
+  </div>
+  <p class="hint" id="exMsg"></p>
+</details>
+
+<details class="sheet" id="setBox"><summary></summary>
+  <div class="sh-head"><span>Settings</span><button class="icon" data-close aria-label="Band karo"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div class="field"><label>ਅਨੁਵਾਦ kiven dikhe</label>
+    <select id="trMode">
+      <option value="layout">Page de layout utte (same jagah)</option>
+      <option value="card">Page de upar vakhra card</option>
+    </select></div>
+  <div class="field"><label>Model</label>
+    <select id="model"><option value="">— model —</option></select>
+    <button id="loadModels" style="display:none"></button></div>
+  <div class="field"><label>Server</label>
+    <input type="url" id="apiKey" placeholder="https://....workers.dev" autocomplete="off">
+    <div class="hint" style="margin-top:6px">Mesh key tuhade Cloudflare server vich hai, phone vich nahi.</div></div>
+  <div class="row" style="margin-top:14px">
+    <button class="btn" id="saveKey" style="flex:1">Save + Test</button>
+    <button class="btn ghost" id="clearTr">Saved ਅਨੁਵਾਦ hatao</button>
+  </div>
+  <p class="hint" id="setMsg"></p>
+</details>
+
 <script>
   
   const $ = id => document.getElementById(id);
@@ -214,19 +291,28 @@
 
   /* ---------- saved PDF library (IndexedDB) ---------- */
   let db = null, currentId = null;
+  let dbErr = "";
   function openDB() {
-    return new Promise(res => {
-      try {
-        const r = indexedDB.open("pdf-page-kholo", 2);
-        r.onupgradeneeded = () => {
-          const d = r.result;
-          if (!d.objectStoreNames.contains("pdfs")) d.createObjectStore("pdfs", { keyPath: "id" });
-          if (!d.objectStoreNames.contains("trans")) d.createObjectStore("trans", { keyPath: "id" });
-        };
-        r.onsuccess = () => res(r.result);
-        r.onerror = () => res(null);
-      } catch (_) { res(null); }
+    const setup = d => {
+      if (!d.objectStoreNames.contains("pdfs")) d.createObjectStore("pdfs", { keyPath: "id" });
+      if (!d.objectStoreNames.contains("trans")) d.createObjectStore("trans", { keyPath: "id" });
+    };
+    const attempt = ver => new Promise(res => {
+      let r;
+      try { r = ver ? indexedDB.open("pdf-page-kholo", ver) : indexedDB.open("pdf-page-kholo"); } catch (e) { dbErr = e.name || String(e); return res(null); }
+      r.onupgradeneeded = () => setup(r.result);
+      r.onsuccess = () => { const d = r.result; d.onversionchange = () => { try { d.close(); } catch (_) {} }; res(d); };
+      r.onerror = e => { dbErr = (r.error && (r.error.name + ": " + r.error.message)) || "error"; e.preventDefault && e.preventDefault(); res(null); };
+      r.onblocked = () => { dbErr = "blocked"; };
     });
+    return (async () => {
+      let d = await attempt(2);
+      if (!d) d = await attempt(0);                       // existing DB at whatever version
+      if (d && (!d.objectStoreNames.contains("pdfs") || !d.objectStoreNames.contains("trans"))) {
+        const v = d.version + 1; d.close(); d = await attempt(v);   // add missing stores
+      }
+      return d;
+    })();
   }
   function tx(mode, fn, store = "pdfs") {
     return new Promise(res => {
@@ -268,16 +354,15 @@
       if (r.bundled) { d.textContent = "📌"; d.title = "App wali PDF"; d.onclick = () => { $("libNote").textContent = "📌 wali PDF app de naal pakki hai — GitHub ton hi hatdi hai."; }; }
       row.append(b, d); box.appendChild(row);
     }
-    if (!db) $("libNote").textContent = "Is browser vich PDF save nahi ho sakdi — har vaar chunni paini.";
+    if (!db) $("libNote").textContent = "PDF save nahi ho rahi (" + (dbErr || "storage band") + "). App band karke dubara kholo.";
   }
 
   async function loadPdf(buf, name, startPage) {
     pdf = await pdfjsLib.getDocument({ data: buf }).promise;
     pdfMain = pdf; pdfPair = null; onPair = false; seen = [];
-    $("exBox").style.display = "";
-    $("pairRow").style.display = "flex";
+    $("pairRow").style.display = "contents";
     updatePairBtn();
-    $("fileName").textContent = "📎 " + name + " (hor PDF layi tap karo)";
+    $("fileName").textContent = name.replace(/\.pdf$/i, "");
     $("num").max = pdf.numPages;
     ["num","go","prev","next"].forEach(id => $(id).disabled = false);
     if (refs.length) goRef(0); else show(startPage || 1);
@@ -316,8 +401,10 @@
   async function updatePairBtn() {
     const rec = currentId ? await dbGet(currentId) : null;
     const has = !!(rec && rec.pairId);
-    $("pairBtn").textContent = onPair ? "⇄ English wala kholo" : (has ? "⇄ ਗੁਰਮੁਖੀ ਵਾਲਾ ਖੋਲ੍ਹੋ" : "+ ਗੁਰਮੁਖੀ PDF jodo");
-    $("pairChange").style.display = has ? "" : "none";
+    $("pairBtn").style.display = has ? "" : "none";
+    $("pairBtn").textContent = onPair ? "EN" : "ਗੁਰਮੁਖੀ";
+    $("pairBtn").classList.toggle("on", onPair);
+    $("pairMenuText").textContent = has ? "ਗੁਰਮੁਖੀ PDF badlo" : "ਗੁਰਮੁਖੀ PDF jodo";
   }
   async function switchToPair() {
     const rec = await dbGet(currentId);
@@ -539,7 +626,6 @@
   $("trBtn").onclick = () => {
     trOn = !trOn;
     $("trBtn").classList.toggle("on", trOn);
-    $("trBtn").textContent = trOn ? "ਅਨੁਵਾਦ ਬੰਦ ਕਰੋ" : "ਪੰਜਾਬੀ ਵਿੱਚ ਪੜ੍ਹੋ";
     if (pdf) rerender();
   };
 
@@ -677,7 +763,8 @@
     if (!seen.includes(n)) seen.push(n);
     $("num").value = n;
     if (currentId) dbGet(currentId).then(r => { if (r) { r.lastPage = n; dbPut(r); } });
-    $("info").textContent = (label || ("PDF page " + n + " / " + pdf.numPages)) + (onPair ? " · ਗੁਰਮੁਖੀ" : "");
+    $("total").textContent = "/ " + pdf.numPages;
+    $("info").textContent = (label || ("Page " + n + " / " + pdf.numPages)) + (onPair ? " · ਗੁਰਮੁਖੀ" : "");
     if (rendering) { try { rendering.cancel(); } catch(_){} }
     const page = await pdf.getPage(n);
     const width = Math.min(document.body.clientWidth - 24, 1000);
@@ -867,6 +954,24 @@
     if (currentId && !onPair) updatePairBtn();
     if (!pdf && mains.length) { $("libBox").open = true; $("info").textContent = "📚 Meri PDFs vichon kitaab chuno."; }
   }
+
+  /* ---------- sheets ---------- */
+  const SHEETS = ["moreBox", "libBox", "refBox", "exBox", "setBox"];
+  function syncScrim() { $("scrim").classList.toggle("on", SHEETS.some(id => $(id).open)); }
+  function openSheet(id) { SHEETS.forEach(s => { if (s !== id) $(s).open = false; }); $(id).open = true; syncScrim(); }
+  SHEETS.forEach(id => $(id).addEventListener("toggle", syncScrim));
+  $("scrim").onclick = () => { SHEETS.forEach(s => $(s).open = false); syncScrim(); };
+  document.querySelectorAll("[data-close]").forEach(b => b.onclick = () => { b.closest("details").open = false; syncScrim(); });
+  document.querySelectorAll("[data-open]").forEach(b => b.onclick = () => openSheet(b.dataset.open));
+  $("moreBtn").onclick = () => openSheet("moreBox");
+  $("libBtn").onclick = () => openSheet("libBox");
+  $("pairMenu").onclick = () => {
+    $("moreBox").open = false; syncScrim();
+    if (!currentId) { $("info").textContent = "Pehle English PDF kholo."; return; }
+    $("pairFile").click();
+  };
+  $("file").addEventListener("change", () => { $("libBox").open = false; syncScrim(); });
+  $("num").addEventListener("change", () => $("go").onclick());
 
   (async () => {
     db = await openDB();
