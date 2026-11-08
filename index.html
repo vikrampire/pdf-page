@@ -107,6 +107,12 @@
   .item .del.sure { background:#b91c1c; color:#fff; border-color:#b91c1c; }
   #trCard { width:100%; max-width:1000px; background:var(--card); border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:8px; padding:12px 14px; margin-bottom:12px; font-size:18px; line-height:1.75; white-space:pre-wrap; }
   #trCard .trHead { font-size:12px; color:var(--muted); margin-bottom:6px; display:flex; gap:8px; align-items:center; white-space:normal; }
+  .pgwrap { position:relative; display:inline-block; line-height:0; }
+  .pgwrap canvas { display:block; }
+  .ovl { position:absolute; inset:0; line-height:normal; transition:opacity .15s; }
+  .ovl.hide { opacity:0; }
+  .ovl .blk { position:absolute; overflow:hidden; color:#111; font-family:"Noto Sans Gurmukhi","Raavi","Mukta Mahee",sans-serif; line-height:1.25; white-space:pre-wrap; word-break:break-word; }
+  #ovlBar { position:sticky; bottom:8px; margin-top:8px; font-size:13px; background:var(--card); border:1px solid var(--line); border-radius:999px; padding:6px 12px; color:var(--muted); line-height:1.4; text-align:center; max-width:90%; }
   #view { width:100%; display:flex; flex-direction:column; align-items:center; }
   button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
   main { padding:12px; display:flex; justify-content:center; }
@@ -174,6 +180,13 @@
     <div class="row" style="margin:6px 0">
       <select id="model" style="flex:1;min-width:0;font-size:14px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)"><option value="">— model —</option></select>
       <button class="tiny ghost" id="loadModels">Models lao</button>
+    </div>
+    <div class="row" style="margin:6px 0">
+      <span class="hint">ਅਨੁਵਾਦ kiven dikhe:</span>
+      <select id="trMode" style="flex:1;min-width:0;font-size:14px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)">
+        <option value="layout">Page de layout utte (same jagah)</option>
+        <option value="card">Upar vakhra card</option>
+      </select>
     </div>
     <div class="row">
       <button class="tiny" id="saveKey">Save + Test</button>
@@ -544,6 +557,115 @@
   };
   $("clearTr").onclick = async () => { await trClear(); $("setMsg").textContent = "Saare saved ਅਨੁਵਾਦ hata dite."; if (pdf && trOn) rerender(); };
 
+  /* ---------- Layout mode: Gurmukhi drawn on the page in place of English blocks ---------- */
+  let renderPromise = null;
+  const trMode = () => store.get("trMode") || "layout";
+  $("trMode").value = trMode();
+  $("trMode").onchange = () => { store.set("trMode", $("trMode").value); if (pdf && trOn) rerender(); };
+  function updBar(bar) {
+    if (bar.dataset.err) return;
+    bar.textContent = bar.dataset.orig ? "Asli English — page te tap karo ਪੰਜਾਬੀ layi" : "ਪੰਜਾਬੀ — page te tap karo asli English layi";
+  }
+
+  // group pdf.js text items into lines, then lines into paragraph blocks (PDF coordinates)
+  function buildBlocks(items) {
+    const its = items.filter(it => it.str && it.str.trim()).map(it => {
+      const [a, b, , , e, f] = it.transform;
+      const fs = Math.hypot(a, b) || 10;
+      return { s: it.str, x: e, y: f, w: it.width || it.str.length * fs * 0.5, fs };
+    });
+    its.sort((p, q) => (q.y - p.y) || (p.x - q.x));
+    const lines = [];
+    for (const it of its) {
+      const L = lines[lines.length - 1];
+      if (L && Math.abs(L.y - it.y) < Math.min(L.fs, it.fs) * 0.5 && it.x >= L.x2 - it.fs && it.x - L.x2 < it.fs * 2.5) {
+        L.s += (it.x - L.x2 > it.fs * 0.15 && !L.s.endsWith(" ") && !it.s.startsWith(" ") ? " " : "") + it.s;
+        L.x2 = Math.max(L.x2, it.x + it.w); L.fs = Math.max(L.fs, it.fs);
+      } else lines.push({ s: it.s, x: it.x, x2: it.x + it.w, y: it.y, fs: it.fs });
+    }
+    const blocks = [];
+    for (const L of lines) {
+      const B = blocks[blocks.length - 1];
+      const gap = B ? B.lastY - L.y : 0;
+      if (B && gap > 0 && gap < Math.max(B.fs, L.fs) * 1.9 && Math.abs(L.fs - B.fs) < B.fs * 0.25 &&
+          L.x < B.x2 && L.x2 > B.x1) {
+        B.s += (B.s.endsWith("-") ? "" : " ") + L.s.trim();
+        B.x1 = Math.min(B.x1, L.x); B.x2 = Math.max(B.x2, L.x2); B.lastY = L.y; B.y1 = L.y - L.fs * 0.25;
+      } else blocks.push({ s: L.s.trim(), x1: L.x, x2: L.x2, y2: L.y + L.fs * 0.95, y1: L.y - L.fs * 0.25, lastY: L.y, fs: L.fs });
+    }
+    return blocks.filter(b => b.s.length > 0).map(b => ({ s: b.s, r: [b.x1, b.y1, b.x2, b.y2], fs: b.fs }));
+  }
+
+  const LAYOUT_PROMPT = "You translate text blocks from one book page into simple, natural Punjabi in Gurmukhi script, for an adult learner. " +
+    "You receive a JSON array of strings (blocks in reading order). Return ONLY a JSON array of strings of EXACTLY the same length, " +
+    "where element i is the translation of block i. Keep the meaning exact. Keep translations concise (they must fit in the same space). " +
+    "For important technical terms you may keep the English word in brackets. Keep numbers, page numbers, names and symbols as they are. " +
+    "If a block is only a number or symbol, return it unchanged.";
+
+  async function translateBlocks(texts) {
+    const j = await meshFetch("/chat/completions", {
+      model: getModel(),
+      messages: [{ role: "system", content: LAYOUT_PROMPT }, { role: "user", content: JSON.stringify(texts) }]
+    });
+    const out = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || "");
+    const a = out.indexOf("["), b = out.lastIndexOf("]");
+    let arr = null;
+    try { arr = JSON.parse(out.slice(a, b + 1)); } catch (_) {}
+    if (!Array.isArray(arr) || arr.length !== texts.length) throw new Error("ਅਨੁਵਾਦ da jawab theek format vich nahi aaya — ↻ naal dubara try karo");
+    return arr.map(x => String(x));
+  }
+
+  function bgAt(canvas, x, y) {
+    try {
+      const d = canvas.getContext("2d").getImageData(Math.max(0, Math.round(x)), Math.max(0, Math.round(y)), 1, 1).data;
+      return "rgb(" + d[0] + "," + d[1] + "," + d[2] + ")";
+    } catch (_) { return "#fff"; }
+  }
+
+  async function showLayout(n, page, canvas, ovl, bar, cssScale, rp) {
+    const id = "L|" + (onPair ? "P|" : "") + currentId + "|" + n;
+    let rec = await trGet(id);
+    if (current !== n) return;
+    if (!rec || !rec.tr) {
+      const tc = await page.getTextContent();
+      const blocks = buildBlocks(tc.items);
+      if (current !== n) return;
+      if (!blocks.length || blocks.map(b => b.s).join("").replace(/\s/g, "").length < 15) {
+        bar.dataset.err = 1; bar.textContent = "Is page te text nahi labheya — shayad scan (photo) wala page hai."; return;
+      }
+      try {
+        const tr = await translateBlocks(blocks.map(b => b.s));
+        rec = { id, blocks: blocks.map(b => ({ r: b.r, fs: b.fs })), tr, model: getModel(), at: Date.now() };
+        await trPut(rec);
+      } catch (e) {
+        if (current === n) { bar.dataset.err = 1; bar.textContent = errText(e); }
+        return;
+      }
+    }
+    if (current !== n) return;
+    await rp;
+    const vp1 = page.getViewport({ scale: cssScale });
+    const dpr = canvas.width / parseFloat(canvas.style.width);
+    ovl.replaceChildren();
+    rec.blocks.forEach((b, i) => {
+      const [x1, y1, x2, y2] = b.r;
+      const p1 = vp1.convertToViewportPoint(x1, y2), p2 = vp1.convertToViewportPoint(x2, y1);
+      const left = Math.min(p1[0], p2[0]) - 1, top = Math.min(p1[1], p2[1]) - 1;
+      const w = Math.abs(p2[0] - p1[0]) + 3, h = Math.abs(p2[1] - p1[1]) + 3;
+      const d = document.createElement("div"); d.className = "blk";
+      d.style.cssText += "left:" + left + "px;top:" + top + "px;width:" + w + "px;height:" + h + "px;background:" + bgAt(canvas, (left - 2) * dpr, (top - 2) * dpr);
+      d.textContent = rec.tr[i] || "";
+      ovl.appendChild(d);
+      let fs = Math.max(6, b.fs * cssScale * 0.95);
+      d.style.fontSize = fs + "px";
+      while ((d.scrollHeight > h + 1 || d.scrollWidth > w + 1) && fs > 5) { fs *= 0.92; d.style.fontSize = fs + "px"; }
+    });
+    bar.dataset.err = ""; updBar(bar);
+    const redo = document.createElement("button"); redo.className = "tiny ghost"; redo.textContent = "↻"; redo.style.cssText = "margin-left:8px;padding:2px 8px";
+    redo.onclick = async (ev) => { ev.stopPropagation(); await tx("readwrite", s => s.delete(id), "trans"); rerender(); };
+    bar.appendChild(redo);
+  }
+
   async function show(n, label) {
     if (!pdf) { $("info").textContent = "Pehle PDF chuno."; return; }
     n = parseInt(n, 10);
@@ -565,7 +687,21 @@
     const canvas = document.createElement("canvas");
     canvas.width = vp.width; canvas.height = vp.height;
     canvas.style.width = (vp.width / dpr) + "px";
-    if (trOn) { $("view").replaceChildren(trCard, canvas); showTranslation(n); }
+    const layout = trOn && trMode() === "layout";
+    if (trOn && !layout) { $("view").replaceChildren(trCard, canvas); showTranslation(n); }
+    else if (layout) {
+      const wrap = document.createElement("div"); wrap.className = "pgwrap";
+      const ovl = document.createElement("div"); ovl.className = "ovl";
+      const bar = document.createElement("div"); bar.id = "ovlBar"; bar.textContent = "⏳ ਅਨੁਵਾਦ...";
+      wrap.append(canvas, ovl);
+      wrap.onclick = () => { ovl.classList.toggle("hide"); bar.dataset.orig = ovl.classList.contains("hide") ? "1" : ""; updBar(bar); };
+      $("view").replaceChildren(wrap, bar);
+      renderPromise = null;
+      rendering = page.render({ canvasContext: canvas.getContext("2d"), viewport: vp });
+      const rp = rendering.promise.catch(() => {});
+      showLayout(n, page, canvas, ovl, bar, scale, rp);
+      await rp; window.scrollTo(0, 0); return;
+    }
     else $("view").replaceChildren(canvas);
     rendering = page.render({ canvasContext: canvas.getContext("2d"), viewport: vp });
     try { await rendering.promise; } catch(_) {}
