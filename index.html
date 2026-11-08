@@ -168,9 +168,9 @@
     <p class="hint" id="exMsg" style="margin:6px 0 2px"></p>
   </details>
   <details id="setBox">
-    <summary>⚙️ Settings (ਅਨੁਵਾਦ / Mesh API)</summary>
-    <p class="hint" style="margin:4px 0">Mesh API key (app.meshapi.ai ton). Eh sirf is phone vich save rehndi hai.</p>
-    <input type="password" id="apiKey" placeholder="mesh_sk_..." autocomplete="off" style="width:100%;font-size:15px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)">
+    <summary>⚙️ Settings (ਅਨੁਵਾਦ / Mesh server)</summary>
+    <p class="hint" style="margin:4px 0">Tuhade Cloudflare server da link (jiven https://pdf-page-mesh.xxxx.workers.dev). Mesh key server vich hai, phone vich nahi.</p>
+    <input type="url" id="apiKey" placeholder="https://....workers.dev" autocomplete="off" style="width:100%;font-size:15px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)">
     <div class="row" style="margin:6px 0">
       <select id="model" style="flex:1;min-width:0;font-size:14px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)"><option value="">— model —</option></select>
       <button class="tiny ghost" id="loadModels">Models lao</button>
@@ -426,13 +426,25 @@
   };
 
   /* ---------- Gurmukhi translation via Mesh API (OpenAI-compatible) ---------- */
-  const MESH = "https://api.meshapi.ai/v1";
   let trOn = false;
   const trCard = document.createElement("div"); trCard.id = "trCard";
-  const getKey = () => store.get("meshKey") || "";
-  const getModel = () => store.get("meshModel") || "";
+  const DEFAULT_SERVER = "https://pdf-page-mesh.vikramfrombarnala.workers.dev";
+  const getKey = () => (store.get("meshServer") || DEFAULT_SERVER).trim().replace(/\/+$/, "");
+  const MODELS = [
+    ["anthropic/claude-haiku-5.5", "Claude Haiku 5.5 — sasta (~₹0.1 / page)"],
+    ["anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5 — vadhiya quality (~₹2 / page)"],
+    ["google/gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite — sasta"],
+    ["google/gemini-3.1-pro", "Gemini 3.1 Pro — vadhiya"],
+  ];
+  const getModel = () => store.get("meshModel") || MODELS[0][0];
   $("apiKey").value = getKey();
-  if (getModel()) { const o = document.createElement("option"); o.value = o.textContent = getModel(); $("model").appendChild(o); $("model").value = getModel(); }
+  (function fillModels() {
+    const sel = $("model"); sel.replaceChildren();
+    const ids = MODELS.map(m => m[0]);
+    if (!ids.includes(getModel())) MODELS.push([getModel(), getModel()]);
+    for (const [id, label] of MODELS) { const o = document.createElement("option"); o.value = id; o.textContent = label; sel.appendChild(o); }
+    sel.value = getModel();
+  })();
 
   const PROMPT = "Translate this book page into simple, natural Punjabi written in Gurmukhi script, for an adult learner. " +
     "Keep the meaning exact. For important technical or difficult terms, keep the English word in brackets after the Punjabi word. " +
@@ -440,13 +452,13 @@
     "Output ONLY the translation, no notes.";
 
   async function meshFetch(path, body) {
-    const key = getKey();
-    if (!key) throw new Error("NOKEY");
+    const base = getKey();
+    if (!/^https:\/\//.test(base)) throw new Error("NOKEY");
     let r;
     try {
-      r = await fetch(MESH + path, {
+      r = await fetch(base + "/v1" + path, {
         method: body ? "POST" : "GET",
-        headers: Object.assign({ "Authorization": "Bearer " + key }, body ? { "Content-Type": "application/json" } : {}),
+        headers: body ? { "Content-Type": "application/json" } : {},
         body: body ? JSON.stringify(body) : undefined
       });
     } catch (e) { throw new Error(navigator.onLine === false ? "OFFLINE" : "BLOCKED"); }
@@ -459,11 +471,12 @@
   }
   function errText(e) {
     const m = e.message;
-    if (m === "NOKEY") return "Pehle ⚙️ Settings vich Mesh API key pao.";
+    if (m === "NOKEY") return "Pehle ⚙️ Settings vich server da link (https://...workers.dev) pao.";
     if (m === "OFFLINE") return "Internet nahi hai — eh page hale translate nahi hoya. Internet aun te dubara try karo.";
-    if (m === "BLOCKED") return "Mesh API naal gall nahi ho saki (internet ya browser ne rokeya). Claude nu dasso.";
-    if (/HTTP 401|HTTP 403/.test(m)) return "Key galat hai ya band hai. " + m;
-    if (/HTTP 402/.test(m)) return "Mesh vich balance khatam hai. " + m;
+    if (m === "BLOCKED") return "Server naal gall nahi ho saki — link check karo ya Claude nu dasso.";
+    if (/HTTP 401/.test(m)) return "Server vich Mesh key galat hai ya band hai. " + m;
+    if (/HTTP 403/.test(m)) return "Server ne rok ditta (app da link allowed nahi). " + m;
+    if (/HTTP 402/.test(m)) return "Mesh vich balance nahi hai — app.meshapi.ai te UPI naal top-up karo.";
     return "Gadbad: " + m;
   }
 
@@ -495,8 +508,7 @@
     try {
       const j = await meshFetch("/chat/completions", {
         model: getModel(),
-        messages: [{ role: "system", content: PROMPT }, { role: "user", content: text }],
-        temperature: 0.2
+        messages: [{ role: "system", content: PROMPT }, { role: "user", content: text }]
       });
       const out = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || "").trim();
       if (!out) throw new Error("khali jawab aaya");
@@ -518,33 +530,14 @@
     if (pdf) rerender();
   };
 
-  async function loadModels() {
-    $("setMsg").textContent = "Models aa rahe ne...";
-    const j = await meshFetch("/models");
-    const ids = (j.data || []).map(m => m.id).filter(Boolean).sort();
-    const sel = $("model"), keep = getModel();
-    sel.replaceChildren();
-    const pref = ["claude-sonnet", "claude-haiku", "gemini", "gpt"];
-    const ranked = [...ids].sort((a, b) => {
-      const ra = pref.findIndex(p => a.includes(p)), rb = pref.findIndex(p => b.includes(p));
-      return (ra < 0 ? 99 : ra) - (rb < 0 ? 99 : rb) || a.localeCompare(b);
-    });
-    for (const id of ranked) { const o = document.createElement("option"); o.value = o.textContent = id; sel.appendChild(o); }
-    sel.value = keep && ids.includes(keep) ? keep : (ranked[0] || "");
-    store.set("meshModel", sel.value);
-    $("setMsg").textContent = ids.length + " models mile. Chuneya: " + sel.value;
-  }
-  $("loadModels").onclick = async () => {
-    store.set("meshKey", $("apiKey").value.trim());
-    try { await loadModels(); } catch (e) { $("setMsg").textContent = errText(e); }
-  };
+  async function loadModels() { /* curated list; nothing to download */ }
+  $("loadModels").style.display = "none";
   $("model").onchange = () => store.set("meshModel", $("model").value);
   $("saveKey").onclick = async () => {
-    store.set("meshKey", $("apiKey").value.trim());
+    store.set("meshServer", $("apiKey").value.trim());
     try {
-      if (!getModel()) await loadModels();
       $("setMsg").textContent = "Test ho reha hai...";
-      const j = await meshFetch("/chat/completions", { model: getModel(), messages: [{ role: "user", content: "Translate to Punjabi (Gurmukhi): Good morning" }], max_tokens: 30 });
+      const j = await meshFetch("/chat/completions", { model: getModel(), messages: [{ role: "user", content: "Translate to Punjabi (Gurmukhi), reply with only the translation: Good morning" }], max_tokens: 1500 });
       const out = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
       $("setMsg").textContent = "✅ Chal gaya! Test: " + (out || "").trim();
     } catch (e) { $("setMsg").textContent = "❌ " + errText(e); }
