@@ -444,12 +444,12 @@
   const DEFAULT_SERVER = "https://pdf-page-mesh.vikramfrombarnala.workers.dev";
   const getKey = () => (store.get("meshServer") || DEFAULT_SERVER).trim().replace(/\/+$/, "");
   const MODELS = [
-    ["anthropic/claude-haiku-5.5", "Claude Haiku 5.5 — sasta (~₹0.1 / page)"],
-    ["anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5 — vadhiya quality (~₹2 / page)"],
-    ["google/gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite — sasta"],
-    ["google/gemini-3.1-pro", "Gemini 3.1 Pro — vadhiya"],
+    ["deepseek/deepseek-v4-flash", "DeepSeek V4 Flash — sab ton sasta, vadhiya (~3 paise / page)"],
+    ["google/gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite — vadhiya (~13 paise / page)"],
+    ["anthropic/claude-haiku-5.5", "Claude Haiku 5.5 — vadhiya (~16 paise / page)"],
+    ["anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5 — sab ton vadhiya, mehnga (~₹2 / page)"],
   ];
-  const getModel = () => store.get("meshModel") || MODELS[0][0];
+  const getModel = () => store.get("meshModel2") || MODELS[0][0];
   $("apiKey").value = getKey();
   (function fillModels() {
     const sel = $("model"); sel.replaceChildren();
@@ -545,7 +545,7 @@
 
   async function loadModels() { /* curated list; nothing to download */ }
   $("loadModels").style.display = "none";
-  $("model").onchange = () => store.set("meshModel", $("model").value);
+  $("model").onchange = () => store.set("meshModel2", $("model").value);
   $("saveKey").onclick = async () => {
     store.set("meshServer", $("apiKey").value.trim());
     try {
