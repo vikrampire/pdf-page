@@ -680,43 +680,90 @@
         L.x2 = Math.max(L.x2, it.x + it.w); L.fs = Math.max(L.fs, it.fs);
       } else lines.push({ s: it.s, x: it.x, x2: it.x + it.w, y: it.y, fs: it.fs, fn: it.fn });
     }
+    const sizes = lines.map(l => l.fs).sort((a, b) => a - b);
+    const body = sizes[Math.floor(sizes.length / 2)] || 10;
     const blocks = [];
     for (const L of lines) {
       const B = blocks[blocks.length - 1];
       const gap = B ? B.lastY - L.y : 0;
-      if (B && gap > 0 && gap < Math.max(B.fs, L.fs) * 1.9 && Math.abs(L.fs - B.fs) < B.fs * 0.25 &&
+      const heading = L.fs > body * 1.5 || L.fs >= 16;          // big titles: one line = one block (keeps each line's colour)
+      if (B && !heading && !B.heading && gap > 0 && gap < Math.max(B.fs, L.fs) * 1.9 && Math.abs(L.fs - B.fs) < B.fs * 0.25 &&
           L.x < B.x2 && L.x2 > B.x1) {
         B.s += (B.s.endsWith("-") ? "" : " ") + L.s.trim();
         B.x1 = Math.min(B.x1, L.x); B.x2 = Math.max(B.x2, L.x2); B.lastY = L.y; B.y1 = L.y - L.fs * 0.25;
-      } else blocks.push({ s: L.s.trim(), x1: L.x, x2: L.x2, y2: L.y + L.fs * 0.95, y1: L.y - L.fs * 0.25, lastY: L.y, fs: L.fs, fn: L.fn });
+        B.lines.push([L.x, L.x2]);
+      } else blocks.push({ s: L.s.trim(), x1: L.x, x2: L.x2, y2: L.y + L.fs * 0.95, y1: L.y - L.fs * 0.25, lastY: L.y, fs: L.fs, fn: L.fn, heading, lines: [[L.x, L.x2]] });
     }
-    return blocks.filter(b => b.s.length > 0).map(b => ({ s: b.s, r: [b.x1, b.y1, b.x2, b.y2], fs: b.fs, fn: b.fn }));
+    const spread = a => Math.max(...a) - Math.min(...a);
+    return blocks.filter(b => b.s.length > 0).map(b => {
+      let al = "";
+      if (b.lines.length > 1) {
+        const lefts = b.lines.map(l => l[0]), mids = b.lines.map(l => (l[0] + l[1]) / 2);
+        if (spread(lefts) > b.fs && spread(mids) < b.fs * 0.8) al = "c";
+      }
+      return { s: b.s, r: [b.x1, b.y1, b.x2, b.y2], fs: b.fs, fn: b.fn, al };
+    });
   }
 
-  const LAYOUT_PROMPT = "You translate text blocks from one book page into simple, natural Punjabi in Gurmukhi script, for an adult learner. " +
+  const LAYOUT_PROMPT = "You translate text blocks from one book page into simple, natural Punjabi WRITTEN IN GURMUKHI SCRIPT (ਗੁਰਮੁਖੀ), for an adult learner. " +
+    "Never use Latin letters or romanised/transliterated Punjabi (wrong: 'Gambhīr khōj', right: 'ਗੰਭੀਰ ਖੋਜ'); only English words kept in brackets may be in Latin letters. " +
     "You receive a JSON array of strings (blocks in reading order). Return ONLY a JSON array of strings of EXACTLY the same length, " +
     "where element i is the translation of block i. Keep the meaning exact. Keep translations concise (they must fit in the same space). " +
     "For important technical terms you may keep the English word in brackets. Keep numbers, page numbers, names and symbols as they are. " +
     "If a block is only a number or symbol, return it unchanged.";
 
-  async function translateBlocks(texts) {
+  // share of letters that are Gurmukhi (ignoring English kept in brackets)
+  function gurmukhiRatio(arr) {
+    const s = arr.join(" ").replace(/\([^)]*\)/g, "");
+    const g = (s.match(/[\u0A00-\u0A7F]/g) || []).length, l = (s.match(/[A-Za-z\u00C0-\u024F\u1E00-\u1EFF]/g) || []).length;
+    return g + l === 0 ? 1 : g / (g + l);
+  }
+  const FALLBACK_MODEL = "google/gemini-3.1-flash-lite";
+  async function translateOnce(texts, model, strict) {
     const j = await meshFetch("/chat/completions", {
-      model: getModel(),
-      messages: [{ role: "system", content: LAYOUT_PROMPT }, { role: "user", content: JSON.stringify(texts) }]
+      model,
+      messages: [{ role: "system", content: LAYOUT_PROMPT + (strict ? " Your previous answer used Latin letters. Write every translation in Gurmukhi script (ਗੁਰਮੁਖੀ ਅੱਖਰ) only." : "") },
+                 { role: "user", content: JSON.stringify(texts) }]
     });
     const out = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || "");
     const a = out.indexOf("["), b = out.lastIndexOf("]");
     let arr = null;
     try { arr = JSON.parse(out.slice(a, b + 1)); } catch (_) {}
-    if (!Array.isArray(arr) || arr.length !== texts.length) throw new Error("ਅਨੁਵਾਦ da jawab theek format vich nahi aaya — ↻ naal dubara try karo");
+    if (!Array.isArray(arr) || arr.length !== texts.length) return null;
     return arr.map(x => String(x));
   }
+  async function translateBlocks(texts) {
+    const need = gurmukhiRatio(texts) < 0.5 ? 0.6 : 0;               // English source → answer must be mostly Gurmukhi
+    const tries = [[getModel(), false], [getModel(), true], [FALLBACK_MODEL, true]];
+    let last = null;
+    for (const [model, strict] of tries) {
+      const arr = await translateOnce(texts, model, strict);
+      if (arr && gurmukhiRatio(arr) >= need) return arr;
+      last = arr || last;
+    }
+    if (last) return last;
+    throw new Error("ਅਨੁਵਾਦ da jawab theek format vich nahi aaya — ↻ naal dubara try karo");
+  }
 
-  function bgAt(canvas, x, y) {
+  function bgAt(canvas, x, y, w = 1, h = 1) {
     try {
-      const d = canvas.getContext("2d").getImageData(Math.max(0, Math.round(x)), Math.max(0, Math.round(y)), 1, 1).data;
-      return "rgb(" + d[0] + "," + d[1] + "," + d[2] + ")";
-    } catch (_) { return "#fff"; }
+      const ctx = canvas.getContext("2d"), W = canvas.width, H = canvas.height;
+      const pts = [];
+      for (let i = 0; i <= 8; i++) {
+        const fx = x + (w * i) / 8, fy = y + (h * i) / 8;
+        pts.push([fx, y - 3], [fx, y + h + 3], [x - 3, fy], [x + w + 3, fy]);
+      }
+      const counts = new Map();
+      for (const [px, py] of pts) {
+        const X = Math.min(W - 1, Math.max(0, Math.round(px))), Y = Math.min(H - 1, Math.max(0, Math.round(py)));
+        const d = ctx.getImageData(X, Y, 1, 1).data;
+        if (d[3] < 200) continue;                                      // not drawn = outside the page
+        const k = [d[0] >> 3, d[1] >> 3, d[2] >> 3].join(",");
+        const c = counts.get(k) || { n: 0, rgb: [d[0], d[1], d[2]] }; c.n++; counts.set(k, c);
+      }
+      let best = null; for (const c of counts.values()) if (!best || c.n > best.n) best = c;
+      return best ? "rgb(" + best.rgb.join(",") + ")" : "rgb(255,255,255)";
+    } catch (_) { return "rgb(255,255,255)"; }
   }
 
   const inflight = new Map();
@@ -727,13 +774,13 @@
     const job = (async () => {
       const id = "L|" + key;
       const rec = await trGet(id);
-      if (rec && rec.tr) return rec;
+      if (rec && rec.tr && rec.v === 2) return rec;   // older results (merged titles / romanised) get redone once
       const page = await pdf.getPage(n);
       const tc = await page.getTextContent();
       const blocks = buildBlocks(tc.items);
       if (!blocks.length || blocks.map(b => b.s).join("").replace(/\s/g, "").length < 15) return { id, empty: true };
       const tr = await translateBlocks(blocks.map(b => b.s));
-      const out = { id, blocks: blocks.map(b => ({ r: b.r, fs: b.fs, fn: b.fn })), tr, model: getModel(), at: Date.now() };
+      const out = { id, v: 2, blocks: blocks.map(b => ({ r: b.r, fs: b.fs, fn: b.fn, al: b.al })), tr, model: getModel(), at: Date.now() };
       await trPut(out);
       return out;
     })();
@@ -746,7 +793,7 @@
     ensureLayout(n).catch(() => {});
   }
 
-  // colour of the text inside a block = pixel most different from the block background
+  // colour of the text inside a block = average of the clearly-ink pixels (not anti-aliased edges, not background)
   function inkAt(canvas, x, y, w, h, bg) {
     try {
       const ctx = canvas.getContext("2d");
@@ -754,13 +801,16 @@
       const W = Math.max(1, Math.min(Math.round(w), canvas.width - X)), H = Math.max(1, Math.min(Math.round(h), canvas.height - Y));
       const d = ctx.getImageData(X, Y, W, H).data;
       const m = bg.match(/\d+/g).map(Number);
-      let best = 0, col = null;
-      const step = Math.max(4, Math.floor(d.length / 4 / 4000)) * 4;
+      const step = Math.max(1, Math.floor(d.length / 4 / 20000)) * 4;
+      const px = []; let max = 0;
       for (let i = 0; i < d.length; i += step) {
         const dist = Math.abs(d[i] - m[0]) + Math.abs(d[i + 1] - m[1]) + Math.abs(d[i + 2] - m[2]);
-        if (dist > best) { best = dist; col = [d[i], d[i + 1], d[i + 2]]; }
+        if (dist > 90) { px.push([dist, d[i], d[i + 1], d[i + 2]]); if (dist > max) max = dist; }
       }
-      return best > 60 && col ? "rgb(" + col.join(",") + ")" : "#111";
+      if (!px.length) return "#111";
+      const strong = px.filter(p => p[0] >= max * 0.75);
+      const avg = [1, 2, 3].map(k => Math.round(strong.reduce((s, p) => s + p[k], 0) / strong.length));
+      return "rgb(" + avg.join(",") + ")";
     } catch (_) { return "#111"; }
   }
   function fontStyleOf(page, fn) {
@@ -786,14 +836,15 @@
     rec.blocks.forEach((b, i) => {
       const [x1, y1, x2, y2] = b.r;
       const p1 = vp1.convertToViewportPoint(x1, y2), p2 = vp1.convertToViewportPoint(x2, y1);
-      const left = Math.min(p1[0], p2[0]) - 1, top = Math.min(p1[1], p2[1]) - 1;
-      const w = Math.abs(p2[0] - p1[0]) + 3, h = Math.abs(p2[1] - p1[1]) + 3;
-      const bg = bgAt(canvas, (left - 2) * dpr, (top - 2) * dpr);
+      const cw = parseFloat(canvas.style.width), ch = canvas.height / dpr;
+      const left = Math.max(0, Math.min(p1[0], p2[0]) - 1), top = Math.max(0, Math.min(p1[1], p2[1]) - 1);
+      const w = Math.min(cw - left, Math.abs(p2[0] - p1[0]) + 3), h = Math.min(ch - top, Math.abs(p2[1] - p1[1]) + 3);
+      const bg = bgAt(canvas, left * dpr, top * dpr, w * dpr, h * dpr);
       const ink = inkAt(canvas, left * dpr, top * dpr, w * dpr, h * dpr, bg);
       const st = fontStyleOf(page, b.fn);
       const d = document.createElement("div"); d.className = "blk";
       d.style.cssText += "left:" + left + "px;top:" + top + "px;width:" + w + "px;height:" + h + "px;background:" + bg + ";color:" + ink +
-        (st.bold ? ";font-weight:700" : "") + (st.italic ? ";font-style:italic" : "");
+        (st.bold ? ";font-weight:700" : "") + (st.italic ? ";font-style:italic" : "") + (b.al === "c" ? ";text-align:center" : "");
       d.textContent = rec.tr[i] || "";
       ovl.appendChild(d);
       let fs = Math.max(6, b.fs * cssScale);          // start at the original size, shrink only if it does not fit
