@@ -78,8 +78,7 @@
   }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html, body { margin:0; }
-  body { font:15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Gurmukhi", sans-serif; background:var(--bg); color:var(--ink);
-         padding-bottom:calc(72px + env(safe-area-inset-bottom)); }
+  body { font:15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Gurmukhi", sans-serif; background:var(--bg); color:var(--ink); }
   button { font:inherit; color:inherit; background:none; border:0; cursor:pointer; }
   button:disabled { opacity:.35; cursor:default; }
   input, select, textarea { font:inherit; color:var(--ink); background:var(--soft); border:1px solid transparent; border-radius:10px; padding:10px 12px; width:100%; outline:none; }
@@ -92,8 +91,16 @@
   .row { display:flex; gap:8px; align-items:center; }
   .wrap { flex-wrap:wrap; }
 
+  /* immersive: bars float over the page and fade away */
+  .appbar, .toolbar, #refStrip, #ovlBar { transition:opacity .25s, transform .25s; }
+  body:not(.chrome) .appbar { opacity:0; transform:translateY(-100%); pointer-events:none; }
+  body:not(.chrome) .toolbar { opacity:0; transform:translateY(100%); pointer-events:none; }
+  body:not(.chrome) #refStrip { opacity:0; pointer-events:none; }
+  body:not(.chrome) #ovlBar:not([data-err="1"]):not([data-busy="1"]) { opacity:0; pointer-events:none; }
+  body:not(.chrome) #ovlBar[data-busy="1"] { bottom:calc(10px + env(safe-area-inset-bottom)); }
+
   /* app bar */
-  .appbar { position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:4px; padding:calc(6px + env(safe-area-inset-top)) 6px 6px;
+  .appbar { position:fixed; left:0; right:0; top:0; z-index:20; display:flex; align-items:center; gap:4px; padding:calc(6px + env(safe-area-inset-top)) 6px 6px;
             background:color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border-bottom:1px solid var(--line); }
   .titlebox { flex:1; min-width:0; padding:0 4px; }
   #fileName { font-weight:600; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -101,7 +108,8 @@
   #fileLabel input, #file { display:none; }
 
   /* reference strip */
-  #refStrip { padding:8px 12px 0; }
+  #refStrip { position:fixed; left:0; right:0; top:calc(57px + env(safe-area-inset-top)); z-index:19; padding:8px 12px; background:color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); }
+  #refStrip:has(#chips:empty) { display:none; }
   #chips { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; }
   #chips::-webkit-scrollbar { display:none; }
   #chips:empty { display:none; }
@@ -111,14 +119,15 @@
   #ctx:empty { display:none; }
 
   /* page */
-  main { padding:12px 8px; display:flex; justify-content:center; }
+  main { min-height:100vh; min-height:100dvh; padding:8px; display:flex; align-items:center; justify-content:center; touch-action:pan-y pinch-zoom; user-select:none; -webkit-user-select:none; }
+  main.cardmode { align-items:flex-start; padding-top:calc(64px + env(safe-area-inset-top)); padding-bottom:84px; }
   #view { width:100%; display:flex; flex-direction:column; align-items:center; }
   canvas { max-width:100%; height:auto; background:#fff; box-shadow:var(--shadow); border-radius:2px; }
   .pgwrap { position:relative; display:inline-block; line-height:0; }
   .pgwrap canvas { display:block; }
   .ovl { position:absolute; inset:0; line-height:normal; transition:opacity .15s; }
   .ovl.hide { opacity:0; }
-  .ovl .blk { position:absolute; overflow:hidden; color:#111; font-family:"Noto Sans Gurmukhi","Raavi","Mukta Mahee",sans-serif; line-height:1.25; white-space:pre-wrap; word-break:break-word; }
+  .ovl .blk { position:absolute; overflow:hidden; font-family:"Noto Sans Gurmukhi","Raavi","Mukta Mahee",sans-serif; line-height:1.25; white-space:pre-wrap; word-break:break-word; }
   #trCard { width:100%; max-width:1000px; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:12px; font-size:18px; line-height:1.75; white-space:pre-wrap; }
   #trCard .trHead { font-size:12px; color:var(--muted); margin-bottom:6px; display:flex; gap:8px; align-items:center; white-space:normal; }
   #trCard .trHead button { margin-left:auto; font-size:13px; padding:2px 8px; border-radius:8px; background:var(--soft); }
@@ -625,9 +634,11 @@
 
   $("trBtn").onclick = () => {
     trOn = !trOn;
+    store.set("trOn", trOn ? "1" : "");
     $("trBtn").classList.toggle("on", trOn);
     if (pdf) rerender();
   };
+  if (store.get("trOn") === "1") { trOn = true; $("trBtn").classList.add("on"); }
 
   async function loadModels() { /* curated list; nothing to download */ }
   $("loadModels").style.display = "none";
@@ -650,7 +661,7 @@
   $("trMode").onchange = () => { store.set("trMode", $("trMode").value); if (pdf && trOn) rerender(); };
   function updBar(bar) {
     if (bar.dataset.err) return;
-    bar.textContent = bar.dataset.orig ? "Asli English — page te tap karo ਪੰਜਾਬੀ layi" : "ਪੰਜਾਬੀ — page te tap karo asli English layi";
+    bar.textContent = bar.dataset.orig ? "Asli English" : "ਪੰਜਾਬੀ · asli English layi page nu daba ke rakho";
   }
 
   // group pdf.js text items into lines, then lines into paragraph blocks (PDF coordinates)
@@ -658,7 +669,7 @@
     const its = items.filter(it => it.str && it.str.trim()).map(it => {
       const [a, b, , , e, f] = it.transform;
       const fs = Math.hypot(a, b) || 10;
-      return { s: it.str, x: e, y: f, w: it.width || it.str.length * fs * 0.5, fs };
+      return { s: it.str, x: e, y: f, w: it.width || it.str.length * fs * 0.5, fs, fn: it.fontName };
     });
     its.sort((p, q) => (q.y - p.y) || (p.x - q.x));
     const lines = [];
@@ -667,7 +678,7 @@
       if (L && Math.abs(L.y - it.y) < Math.min(L.fs, it.fs) * 0.5 && it.x >= L.x2 - it.fs && it.x - L.x2 < it.fs * 2.5) {
         L.s += (it.x - L.x2 > it.fs * 0.15 && !L.s.endsWith(" ") && !it.s.startsWith(" ") ? " " : "") + it.s;
         L.x2 = Math.max(L.x2, it.x + it.w); L.fs = Math.max(L.fs, it.fs);
-      } else lines.push({ s: it.s, x: it.x, x2: it.x + it.w, y: it.y, fs: it.fs });
+      } else lines.push({ s: it.s, x: it.x, x2: it.x + it.w, y: it.y, fs: it.fs, fn: it.fn });
     }
     const blocks = [];
     for (const L of lines) {
@@ -677,9 +688,9 @@
           L.x < B.x2 && L.x2 > B.x1) {
         B.s += (B.s.endsWith("-") ? "" : " ") + L.s.trim();
         B.x1 = Math.min(B.x1, L.x); B.x2 = Math.max(B.x2, L.x2); B.lastY = L.y; B.y1 = L.y - L.fs * 0.25;
-      } else blocks.push({ s: L.s.trim(), x1: L.x, x2: L.x2, y2: L.y + L.fs * 0.95, y1: L.y - L.fs * 0.25, lastY: L.y, fs: L.fs });
+      } else blocks.push({ s: L.s.trim(), x1: L.x, x2: L.x2, y2: L.y + L.fs * 0.95, y1: L.y - L.fs * 0.25, lastY: L.y, fs: L.fs, fn: L.fn });
     }
-    return blocks.filter(b => b.s.length > 0).map(b => ({ s: b.s, r: [b.x1, b.y1, b.x2, b.y2], fs: b.fs }));
+    return blocks.filter(b => b.s.length > 0).map(b => ({ s: b.s, r: [b.x1, b.y1, b.x2, b.y2], fs: b.fs, fn: b.fn }));
   }
 
   const LAYOUT_PROMPT = "You translate text blocks from one book page into simple, natural Punjabi in Gurmukhi script, for an adult learner. " +
@@ -708,28 +719,67 @@
     } catch (_) { return "#fff"; }
   }
 
-  async function showLayout(n, page, canvas, ovl, bar, cssScale, rp) {
-    const id = "L|" + (onPair ? "P|" : "") + currentId + "|" + n;
-    let rec = await trGet(id);
-    if (current !== n) return;
-    if (!rec || !rec.tr) {
+  const inflight = new Map();
+  // returns cached or fresh translation record for page n of the active PDF (null if no text / error thrown)
+  function ensureLayout(n) {
+    const key = (onPair ? "P|" : "") + currentId + "|" + n;
+    if (inflight.has(key)) return inflight.get(key);
+    const job = (async () => {
+      const id = "L|" + key;
+      const rec = await trGet(id);
+      if (rec && rec.tr) return rec;
+      const page = await pdf.getPage(n);
       const tc = await page.getTextContent();
       const blocks = buildBlocks(tc.items);
-      if (current !== n) return;
-      if (!blocks.length || blocks.map(b => b.s).join("").replace(/\s/g, "").length < 15) {
-        bar.dataset.err = 1; bar.textContent = "Is page te text nahi labheya — shayad scan (photo) wala page hai."; return;
+      if (!blocks.length || blocks.map(b => b.s).join("").replace(/\s/g, "").length < 15) return { id, empty: true };
+      const tr = await translateBlocks(blocks.map(b => b.s));
+      const out = { id, blocks: blocks.map(b => ({ r: b.r, fs: b.fs, fn: b.fn })), tr, model: getModel(), at: Date.now() };
+      await trPut(out);
+      return out;
+    })();
+    inflight.set(key, job);
+    job.finally(() => inflight.delete(key));
+    return job;
+  }
+  function prefetch(n) {
+    if (!trOn || trMode() !== "layout" || !pdf || n > pdf.numPages || !navigator.onLine) return;
+    ensureLayout(n).catch(() => {});
+  }
+
+  // colour of the text inside a block = pixel most different from the block background
+  function inkAt(canvas, x, y, w, h, bg) {
+    try {
+      const ctx = canvas.getContext("2d");
+      const X = Math.max(0, Math.round(x)), Y = Math.max(0, Math.round(y));
+      const W = Math.max(1, Math.min(Math.round(w), canvas.width - X)), H = Math.max(1, Math.min(Math.round(h), canvas.height - Y));
+      const d = ctx.getImageData(X, Y, W, H).data;
+      const m = bg.match(/\d+/g).map(Number);
+      let best = 0, col = null;
+      const step = Math.max(4, Math.floor(d.length / 4 / 4000)) * 4;
+      for (let i = 0; i < d.length; i += step) {
+        const dist = Math.abs(d[i] - m[0]) + Math.abs(d[i + 1] - m[1]) + Math.abs(d[i + 2] - m[2]);
+        if (dist > best) { best = dist; col = [d[i], d[i + 1], d[i + 2]]; }
       }
-      try {
-        const tr = await translateBlocks(blocks.map(b => b.s));
-        rec = { id, blocks: blocks.map(b => ({ r: b.r, fs: b.fs })), tr, model: getModel(), at: Date.now() };
-        await trPut(rec);
-      } catch (e) {
-        if (current === n) { bar.dataset.err = 1; bar.textContent = errText(e); }
-        return;
-      }
-    }
+      return best > 60 && col ? "rgb(" + col.join(",") + ")" : "#111";
+    } catch (_) { return "#111"; }
+  }
+  function fontStyleOf(page, fn) {
+    try {
+      if (!fn || !page.commonObjs.has(fn)) return {};
+      const f = page.commonObjs.get(fn), name = (f && (f.name || f.loadedName) || "") + " " + (f && f.fallbackName || "");
+      return { bold: /bold|black|heavy|semibold|demi/i.test(name) || (f && f.bold), italic: /italic|oblique/i.test(name) || (f && f.italic) };
+    } catch (_) { return {}; }
+  }
+
+  async function showLayout(n, page, canvas, ovl, bar, cssScale, rp) {
+    let rec;
+    try { rec = await ensureLayout(n); }
+    catch (e) { if (current === n) { bar.dataset.busy = ""; bar.dataset.err = "1"; bar.textContent = errText(e); } return; }
     if (current !== n) return;
+    bar.dataset.busy = "";
+    if (rec.empty) { bar.dataset.err = "1"; bar.textContent = "Is page te text nahi labheya — shayad scan (photo) wala page hai."; setTimeout(() => { bar.dataset.err = ""; }, 4000); return; }
     await rp;
+    if (current !== n) return;
     const vp1 = page.getViewport({ scale: cssScale });
     const dpr = canvas.width / parseFloat(canvas.style.width);
     ovl.replaceChildren();
@@ -738,17 +788,21 @@
       const p1 = vp1.convertToViewportPoint(x1, y2), p2 = vp1.convertToViewportPoint(x2, y1);
       const left = Math.min(p1[0], p2[0]) - 1, top = Math.min(p1[1], p2[1]) - 1;
       const w = Math.abs(p2[0] - p1[0]) + 3, h = Math.abs(p2[1] - p1[1]) + 3;
+      const bg = bgAt(canvas, (left - 2) * dpr, (top - 2) * dpr);
+      const ink = inkAt(canvas, left * dpr, top * dpr, w * dpr, h * dpr, bg);
+      const st = fontStyleOf(page, b.fn);
       const d = document.createElement("div"); d.className = "blk";
-      d.style.cssText += "left:" + left + "px;top:" + top + "px;width:" + w + "px;height:" + h + "px;background:" + bgAt(canvas, (left - 2) * dpr, (top - 2) * dpr);
+      d.style.cssText += "left:" + left + "px;top:" + top + "px;width:" + w + "px;height:" + h + "px;background:" + bg + ";color:" + ink +
+        (st.bold ? ";font-weight:700" : "") + (st.italic ? ";font-style:italic" : "");
       d.textContent = rec.tr[i] || "";
       ovl.appendChild(d);
-      let fs = Math.max(6, b.fs * cssScale * 0.95);
+      let fs = Math.max(6, b.fs * cssScale);          // start at the original size, shrink only if it does not fit
       d.style.fontSize = fs + "px";
-      while ((d.scrollHeight > h + 1 || d.scrollWidth > w + 1) && fs > 5) { fs *= 0.92; d.style.fontSize = fs + "px"; }
+      while ((d.scrollHeight > h + 1 || d.scrollWidth > w + 1) && fs > 5) { fs *= 0.94; d.style.fontSize = fs + "px"; }
     });
     bar.dataset.err = ""; updBar(bar);
-    const redo = document.createElement("button"); redo.className = "tiny ghost"; redo.textContent = "↻"; redo.style.cssText = "margin-left:8px;padding:2px 8px";
-    redo.onclick = async (ev) => { ev.stopPropagation(); await tx("readwrite", s => s.delete(id), "trans"); rerender(); };
+    const redo = document.createElement("button"); redo.textContent = "↻";
+    redo.onclick = async (ev) => { ev.stopPropagation(); await tx("readwrite", s => s.delete(rec.id), "trans"); rerender(); };
     bar.appendChild(redo);
   }
 
@@ -767,8 +821,11 @@
     $("info").textContent = (label || ("Page " + n + " / " + pdf.numPages)) + (onPair ? " · ਗੁਰਮੁਖੀ" : "");
     if (rendering) { try { rendering.cancel(); } catch(_){} }
     const page = await pdf.getPage(n);
-    const width = Math.min(document.body.clientWidth - 24, 1000);
-    const scale = width / page.getViewport({ scale: 1 }).width;
+    const v1 = page.getViewport({ scale: 1 });
+    const cardMode = trOn && trMode() !== "layout";
+    document.querySelector("main").classList.toggle("cardmode", cardMode);
+    const aw = Math.min(window.innerWidth - 16, 1400), ah = window.innerHeight - 16;
+    const scale = cardMode ? Math.min(aw, 1000) / v1.width : Math.min(aw / v1.width, ah / v1.height);
     const dpr = window.devicePixelRatio || 1;
     const vp = page.getViewport({ scale: scale * dpr });
     const canvas = document.createElement("canvas");
@@ -779,15 +836,14 @@
     else if (layout) {
       const wrap = document.createElement("div"); wrap.className = "pgwrap";
       const ovl = document.createElement("div"); ovl.className = "ovl";
-      const bar = document.createElement("div"); bar.id = "ovlBar"; bar.textContent = "⏳ ਅਨੁਵਾਦ...";
+      const bar = document.createElement("div"); bar.id = "ovlBar"; bar.textContent = "⏳ ਅਨੁਵਾਦ..."; bar.dataset.busy = "1";
       wrap.append(canvas, ovl);
-      wrap.onclick = () => { ovl.classList.toggle("hide"); bar.dataset.orig = ovl.classList.contains("hide") ? "1" : ""; updBar(bar); };
       $("view").replaceChildren(wrap, bar);
       renderPromise = null;
       rendering = page.render({ canvasContext: canvas.getContext("2d"), viewport: vp });
       const rp = rendering.promise.catch(() => {});
       showLayout(n, page, canvas, ovl, bar, scale, rp);
-      await rp; window.scrollTo(0, 0); return;
+      await rp; window.scrollTo(0, 0); prefetch(n + 1); return;
     }
     else $("view").replaceChildren(canvas);
     rendering = page.render({ canvasContext: canvas.getContext("2d"), viewport: vp });
@@ -955,9 +1011,68 @@
     if (!pdf && mains.length) { $("libBox").open = true; $("info").textContent = "📚 Meri PDFs vichon kitaab chuno."; }
   }
 
+  /* ---------- immersive reading: bars auto-hide, tap / swipe / hold ---------- */
+  let chromeTimer = null;
+  const anySheetOpen = () => ["moreBox", "libBox", "refBox", "exBox", "setBox"].some(id => $(id) && $(id).open);
+  function showChrome(ms = 3000) {
+    document.body.classList.add("chrome");
+    clearTimeout(chromeTimer);
+    chromeTimer = setTimeout(() => {
+      const ae = document.activeElement;
+      if (!pdf || anySheetOpen() || (ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName))) return showChrome(ms);
+      document.body.classList.remove("chrome");
+    }, ms);
+  }
+  function hideChrome() { clearTimeout(chromeTimer); if (pdf) document.body.classList.remove("chrome"); }
+  showChrome(4000);
+  document.querySelectorAll(".appbar, .toolbar, #refStrip").forEach(el => el.addEventListener("pointerdown", () => showChrome()));
+
+  const mainEl = document.querySelector("main");
+  let g = null, holdTimer = null;
+  const zoomed = () => window.visualViewport && window.visualViewport.scale > 1.05;
+  mainEl.addEventListener("pointerdown", e => {
+    if (!e.isPrimary || !pdf) return;
+    g = { x: e.clientX, y: e.clientY, t: Date.now(), held: false };
+    const ovl = mainEl.querySelector(".ovl");
+    if (ovl) holdTimer = setTimeout(() => { if (g) { g.held = true; ovl.classList.add("hide"); const b = $("ovlBar"); if (b) { b.dataset.orig = "1"; updBar(b); } } }, 380);
+  });
+  mainEl.addEventListener("pointermove", e => {
+    if (g && !g.held && (Math.abs(e.clientX - g.x) > 12 || Math.abs(e.clientY - g.y) > 12)) clearTimeout(holdTimer);
+  });
+  const endGesture = e => {
+    clearTimeout(holdTimer);
+    if (!g) return;
+    const dx = e.clientX - g.x, dy = e.clientY - g.y, dt = Date.now() - g.t, was = g; g = null;
+    const ovl = mainEl.querySelector(".ovl");
+    if (was.held) { if (ovl) ovl.classList.remove("hide"); const b = $("ovlBar"); if (b) { b.dataset.orig = ""; updBar(b); } return; }
+    if (!zoomed() && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.4 && dt < 800) {
+      (dx < 0 ? $("next") : $("prev")).onclick();
+      return;
+    }
+    if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && dt < 380) {
+      document.body.classList.contains("chrome") ? hideChrome() : showChrome();
+    }
+  };
+  mainEl.addEventListener("pointerup", endGesture);
+  mainEl.addEventListener("pointercancel", () => { clearTimeout(holdTimer); if (g && g.held) { const o = mainEl.querySelector(".ovl"); if (o) o.classList.remove("hide"); } g = null; });
+  mainEl.addEventListener("contextmenu", e => e.preventDefault());
+  document.addEventListener("keydown", e => {
+    if (/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || "")) return;
+    if (e.key === "ArrowRight") $("next").onclick(); else if (e.key === "ArrowLeft") $("prev").onclick();
+  });
+  let rsT = null, lastW = window.innerWidth, lastH = window.innerHeight;
+  window.addEventListener("resize", () => {
+    clearTimeout(rsT);
+    rsT = setTimeout(() => {
+      if (zoomed() || !pdf) return;
+      if (Math.abs(window.innerWidth - lastW) < 40 && Math.abs(window.innerHeight - lastH) < 120) return;
+      lastW = window.innerWidth; lastH = window.innerHeight; rerender();
+    }, 250);
+  });
+
   /* ---------- sheets ---------- */
   const SHEETS = ["moreBox", "libBox", "refBox", "exBox", "setBox"];
-  function syncScrim() { $("scrim").classList.toggle("on", SHEETS.some(id => $(id).open)); }
+  function syncScrim() { $("scrim").classList.toggle("on", SHEETS.some(id => $(id).open)); showChrome(); }
   function openSheet(id) { SHEETS.forEach(s => { if (s !== id) $(s).open = false; }); $(id).open = true; syncScrim(); }
   SHEETS.forEach(id => $(id).addEventListener("toggle", syncScrim));
   $("scrim").onclick = () => { SHEETS.forEach(s => $(s).open = false); syncScrim(); };
