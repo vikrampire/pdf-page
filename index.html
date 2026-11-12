@@ -796,7 +796,9 @@
     const out = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || "");
     const a = out.indexOf("["), b = out.lastIndexOf("]");
     let arr = null;
-    try { arr = JSON.parse(out.slice(a, b + 1)); } catch (_) {}
+    try { arr = JSON.parse(out.slice(a, b + 1)); } catch (_) {
+      try { arr = JSON.parse(out.slice(a, b + 1).replace(/,\s*\]$/, "]")); } catch (_) {}   // common slip: trailing comma
+    }
     if (!Array.isArray(arr) || arr.length !== texts.length) return null;
     return arr.map(x => String(x));
   }
@@ -812,12 +814,30 @@
     const out = []; chunks.forEach((ix, k) => ix.forEach((i, j) => { out[i] = parts[k][j]; }));
     return out;
   }
+  // one block as plain text — no JSON, so nothing to break; used when a list answer comes back broken
+  async function translateSingle(text, model, strict) {
+    const j = await meshFetch("/chat/completions", {
+      model,
+      messages: [{ role: "system", content: PROMPT + " Never use romanised Punjabi; write in Gurmukhi script." + (strict ? " Your previous answer used Latin letters. Write in Gurmukhi script (ਗੁਰਮੁਖੀ ਅੱਖਰ) only." : "") },
+                 { role: "user", content: text }]
+    });
+    const out = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || "").trim();
+    return out ? [out] : null;
+  }
   async function translateChunk(texts) {
     const need = gurmukhiRatio(texts) < 0.5 ? 0.6 : 0;               // English source → answer must be mostly Gurmukhi
-    const tries = [[getModel(), false], [getModel(), true], [FALLBACK_MODEL, true]];
-    let last = null;
-    for (const [model, strict] of tries) {
-      const arr = await translateOnce(texts, model, strict);
+    const one = texts.length === 1;
+    const call = (model, strict) => one ? translateSingle(texts[0], model, strict) : translateOnce(texts, model, strict);
+    const first = await call(getModel(), false);
+    if (first && gurmukhiRatio(first) >= need) return first;
+    if (!first && !one) {                                            // list came back broken (count off / bad quotes) → halve and retry
+      const mid = Math.ceil(texts.length / 2);
+      const [a, b] = await Promise.all([translateChunk(texts.slice(0, mid)), translateChunk(texts.slice(mid))]);
+      return a.concat(b);
+    }
+    let last = first;                                                // romanised answer, or a single block that came back empty
+    for (const [model, strict] of [[getModel(), true], [FALLBACK_MODEL, true]]) {
+      const arr = await call(model, strict);
       if (arr && gurmukhiRatio(arr) >= need) return arr;
       last = arr || last;
     }
