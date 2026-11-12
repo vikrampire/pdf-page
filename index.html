@@ -128,6 +128,7 @@
   .ovl { position:absolute; inset:0; line-height:normal; transition:opacity .15s; }
   .ovl.hide { opacity:0; }
   .ovl .blk { position:absolute; overflow:hidden; font-family:"Noto Sans Gurmukhi","Raavi","Mukta Mahee",sans-serif; line-height:1.25; white-space:pre-wrap; word-break:break-word; }
+  .ovl .blk.scan { overflow:auto; padding:6% 7%; line-height:1.6; box-sizing:border-box; overscroll-behavior:contain; }
   #trCard { width:100%; max-width:1000px; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:12px; font-size:18px; line-height:1.75; white-space:pre-wrap; }
   #trCard .trHead { font-size:12px; color:var(--muted); margin-bottom:6px; display:flex; gap:8px; align-items:center; white-space:normal; }
   #trCard .trHead button { margin-left:auto; font-size:13px; padding:2px 8px; border-radius:8px; background:var(--soft); }
@@ -569,17 +570,29 @@
     "Keep paragraph breaks and list structure. The text was extracted from a PDF, so join broken lines into proper sentences and ignore page headers/footers. " +
     "Output ONLY the translation, no notes.";
 
-  async function meshFetch(path, body) {
+  // a request that hangs on a slow network is cut off after `wait` ms and tried once more
+  async function meshFetch(path, body, wait = 30000) {
     const base = getKey();
     if (!/^https:\/\//.test(base)) throw new Error("NOKEY");
     let r;
-    try {
-      r = await fetch(base + "/v1" + path, {
-        method: body ? "POST" : "GET",
-        headers: body ? { "Content-Type": "application/json" } : {},
-        body: body ? JSON.stringify(body) : undefined
-      });
-    } catch (e) { throw new Error(navigator.onLine === false ? "OFFLINE" : "BLOCKED"); }
+    for (let attempt = 1; ; attempt++) {
+      const ac = new AbortController(), timer = setTimeout(() => ac.abort(), wait);
+      try {
+        r = await fetch(base + "/v1" + path, {
+          method: body ? "POST" : "GET",
+          headers: body ? { "Content-Type": "application/json" } : {},
+          body: body ? JSON.stringify(body) : undefined,
+          signal: ac.signal
+        });
+        clearTimeout(timer);
+        break;
+      } catch (e) {
+        clearTimeout(timer);
+        if (navigator.onLine === false) throw new Error("OFFLINE");
+        if (attempt < 2) continue;
+        throw new Error(e.name === "AbortError" ? "SLOW" : "BLOCKED");
+      }
+    }
     if (!r.ok) {
       let msg = "HTTP " + r.status;
       try { const j = await r.json(); msg += ": " + ((j.error && (j.error.message || j.error)) || j.message || ""); } catch (_) {}
@@ -591,6 +604,7 @@
     const m = e.message;
     if (m === "NOKEY") return "Pehle ⚙️ Settings vich server da link (https://...workers.dev) pao.";
     if (m === "OFFLINE") return "Internet nahi hai — eh page hale translate nahi hoya. Internet aun te dubara try karo.";
+    if (m === "SLOW") return "Network slow hai — page time te nahi aaya. ↻ dabao, ya WiFi te \"Poori kitaab tayaar karo\" chalao.";
     if (m === "BLOCKED") return "Server naal gall nahi ho saki — link check karo ya Claude nu dasso.";
     if (/HTTP 401/.test(m)) return "Server vich Mesh key galat hai ya band hai. " + m;
     if (/HTTP 403/.test(m)) return "Server ne rok ditta (app da link allowed nahi). " + m;
@@ -617,8 +631,15 @@
     let text = "";
     try { text = await pageText(n); } catch (_) {}
     if (current !== n) return;
-    if (!text || text.replace(/\s/g, "").length < 15) {
-      body.textContent = "Is page te text nahi labheya — shayad eh scan (photo) wala page hai, ya khali hai.";
+    if (!text || text.replace(/\s/g, "").length < 15) {          // scanned page → same vision path as layout mode
+      body.textContent = "⏳ Scan wala page — tasveer ton ਅਨੁਵਾਦ ho reha hai...";
+      try {
+        const rec = await ensureLayout(n);
+        if (current !== n) return;
+        body.textContent = rec.text || "Is page te padhan wala text nahi — khali page ya sirf tasveer.";
+        const b = document.getElementById("trRedo");
+        if (b) b.onclick = async () => { await tx("readwrite", s => s.delete(rec.id), "trans"); showTranslation(n); };
+      } catch (e) { if (current === n) body.textContent = errText(e); }
       return;
     }
     if (!getModel()) { body.textContent = "⚙️ Settings vich key pa ke model chuno (\"Models lao\")."; return; }
@@ -825,6 +846,31 @@
     } catch (_) { return "rgb(255,255,255)"; }
   }
 
+  /* ---------- scanned (photo) pages: send the page picture to a vision model ---------- */
+  // scans use the model chosen in Settings; DeepSeek cannot read pictures, so it falls back to Gemini
+  const visionModel = () => /deepseek/i.test(getModel()) ? "google/gemini-3.1-flash-lite" : getModel();
+  const SCAN_PROMPT = "This image is one scanned page of a book. Read all of its text and translate it into simple, natural Punjabi WRITTEN IN GURMUKHI SCRIPT (ਗੁਰਮੁਖੀ), for an adult learner. " +
+    "Never use romanised Punjabi; only English words kept in brackets may be in Latin letters. Keep the meaning exact. " +
+    "For important technical or difficult terms, keep the English word in brackets after the Punjabi word. Keep numbers, names and symbols as they are. " +
+    "Keep headings, paragraph breaks and list structure, join broken lines into proper sentences, and skip running page headers/footers. " +
+    "If the page has no readable text (blank page or only a picture), reply with exactly: -  Output ONLY the translation, no notes.";
+  async function scanTranslate(page) {
+    const v1 = page.getViewport({ scale: 1 });
+    const scale = 1600 / Math.max(v1.width, v1.height);            // ~1600 px long side: readable, small upload
+    const vp = page.getViewport({ scale });
+    const c = document.createElement("canvas"); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: ctx, viewport: vp, intent: "print" }).promise;   // "print" = no animation frames, so it also works while the app is in the background
+    const img = c.toDataURL("image/jpeg", 0.75);
+    const j = await meshFetch("/chat/completions", {
+      model: visionModel(),
+      messages: [{ role: "system", content: SCAN_PROMPT },
+                 { role: "user", content: [{ type: "text", text: "Translate this book page." }, { type: "image_url", image_url: { url: img } }] }]
+    }, 60000);
+    const out = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || "").trim();
+    return out.replace(/^-$/, "");
+  }
+
   const inflight = new Map();
   // returns cached or fresh translation record for page n of the active PDF (null if no text / error thrown)
   function ensureLayout(n) {
@@ -833,11 +879,16 @@
     const job = (async () => {
       const id = "L|" + key;
       const rec = await trGet(id);
-      if (rec && rec.tr && rec.v === 4) return rec;   // older results (merged titles / romanised) get redone once
+      if (rec && rec.v === 4 && (rec.tr || rec.scan)) return rec;   // older results (merged titles / romanised) get redone once
       const page = await pdf.getPage(n);
       const tc = await page.getTextContent();
       const blocks = buildBlocks(tc.items, page.getViewport({ scale: 1 }).transform);
-      if (!blocks.length || blocks.map(b => b.s).join("").replace(/\s/g, "").length < 15) return { id, empty: true };
+      if (!blocks.length || blocks.map(b => b.s).join("").replace(/\s/g, "").length < 15) {
+        const text = await scanTranslate(page);                      // no text layer → scanned page
+        const out = text ? { id, v: 4, scan: true, text, model: visionModel(), at: Date.now() } : { id, v: 4, scan: true, empty: true, at: Date.now() };
+        await trPut(out);
+        return out;
+      }
       const plain = s => !/[A-Za-z\u00C0-\u024F]{2,}/.test(s);        // only numbers, dots, symbols → keep as is
       const todo = blocks.map((b, i) => plain(b.s) ? -1 : i).filter(i => i >= 0);
       const got = todo.length ? await translateBlocks(todo.map(i => blocks[i].s)) : [];
@@ -913,16 +964,33 @@
   async function showLayout(n, page, canvas, ovl, bar, cssScale, rp) {
     let rec;
     try { rec = await ensureLayout(n); }
-    catch (e) { if (current === n) { bar.dataset.busy = ""; bar.dataset.err = "1"; bar.textContent = errText(e); } return; }
+    catch (e) {
+      if (current === n) {
+        bar.dataset.busy = ""; bar.dataset.err = "1"; bar.textContent = errText(e) + " ";
+        const again = document.createElement("button"); again.textContent = "↻";
+        again.onclick = (ev) => { ev.stopPropagation(); rerender(); };
+        bar.appendChild(again);
+      }
+      return;
+    }
     if (current !== n) return;
     bar.dataset.busy = "";
-    if (rec.empty) { bar.dataset.err = "1"; bar.textContent = "Is page te text nahi labheya — shayad scan (photo) wala page hai."; setTimeout(() => { bar.dataset.err = ""; }, 4000); return; }
+    if (rec.empty) { bar.dataset.err = "1"; bar.textContent = "Is page te padhan wala text nahi — khali page ya sirf tasveer."; setTimeout(() => { bar.dataset.err = ""; }, 4000); return; }
     await rp;
     if (current !== n) return;
-    const vp1 = page.getViewport({ scale: cssScale });
+    if (rec.scan) {                                      // scanned page: one Punjabi panel over the whole page
+      const d = document.createElement("div"); d.className = "blk scan";
+      const bg = bgAt(canvas, 4, 4, 30, 30);
+      d.style.cssText += "left:0;top:0;width:100%;height:100%;background:" + bg + ";color:#1d1d1b";
+      d.textContent = rec.text;
+      ovl.replaceChildren(d);
+      let fs = 17;                                       // phone-readable size, shrinks only if the page is long
+      d.style.fontSize = fs + "px";
+      while (d.scrollHeight > d.clientHeight + 1 && fs > 11) { fs *= 0.94; d.style.fontSize = fs + "px"; }   // below 11px it scrolls instead
+    }
     const dpr = canvas.width / parseFloat(canvas.style.width);
-    ovl.replaceChildren();
-    rec.blocks.forEach((b, i) => {
+    if (!rec.scan) ovl.replaceChildren();
+    if (!rec.scan) rec.blocks.forEach((b, i) => {
       if (b.k) return;                                   // numbers / dot leaders: original stays visible
       const [x1, y1, x2, y2] = b.r;                       // screen space at scale 1
       const p1 = [x1 * cssScale, y1 * cssScale], p2 = [x2 * cssScale, y2 * cssScale];
