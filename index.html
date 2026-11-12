@@ -258,6 +258,8 @@
     <button class="btn ghost" id="exUseRefs">Referred pages</button>
     <button class="btn ghost" id="exUseSeen">Vekhe hoye pages</button>
   </div>
+  <button class="btn ghost" id="exAll" style="width:100%;margin-top:8px">Poori kitaab (saare pages)</button>
+  <label class="row hint" style="margin:12px 0"><input type="checkbox" id="exTr"> ਪੰਜਾਬੀ ਅਨੁਵਾਦ wale pages (jiven screen te dikhde ne)</label>
   <label class="row hint" id="exPairLbl" style="display:none;margin:12px 0"><input type="checkbox" id="exPair"> ਗੁਰਮੁਖੀ page vi naal (har English page de baad)</label>
   <div class="row" style="margin-top:14px">
     <button class="btn" id="exDownload" style="flex:1">Download</button>
@@ -292,6 +294,7 @@
     <button class="btn ghost" id="clearTr">Saved ਅਨੁਵਾਦ hatao</button>
   </div>
   <p class="hint" id="setMsg"></p>
+  <p class="hint" id="appVer"></p>
 </details>
 
 <script>
@@ -482,7 +485,7 @@
       if (!m) continue;
       let a = +m[1], b = m[2] ? +m[2] : a;
       if (b < a) [a, b] = [b, a];
-      for (let p = a; p <= b && p - a < 500; p++) if (p >= 1 && p <= max && !out.includes(p)) out.push(p);
+      for (let p = a; p <= b && p - a < 5000; p++) if (p >= 1 && p <= max && !out.includes(p)) out.push(p);
     }
     return out;
   }
@@ -495,8 +498,65 @@
     const rec = currentId ? await dbGet(currentId) : null;
     $("exPairLbl").style.display = rec && rec.pairId ? "block" : "none";
     $("exUseRefs").style.display = refs.length ? "" : "none";
+    $("exTr").checked = trOn;
     $("exMsg").textContent = "";
   });
+  $("exAll").onclick = () => { if (pdfMain) $("exPages").value = "1-" + pdfMain.numPages; };
+
+  // one page as a picture with the Punjabi drawn in, same as the reading view (canvas shapes Gurmukhi correctly; PDF text would not)
+  function wrapLines(ctx, text, maxW) {
+    const lines = [];
+    for (const para of String(text).split("\n")) {
+      if (!para.trim()) { lines.push(""); continue; }
+      let line = "";
+      for (const word of para.split(/\s+/)) {
+        const t = line ? line + " " + word : word;
+        if (ctx.measureText(t).width <= maxW || !line) line = t; else { lines.push(line); line = word; }
+      }
+      lines.push(line);
+    }
+    return lines;
+  }
+  function fitText(ctx, text, x, y, w, h, fs, font, align, minFs) {
+    let lines;
+    for (;;) {
+      ctx.font = font(fs); lines = wrapLines(ctx, text, w);
+      if (lines.length * fs * 1.25 <= h + 1 || fs <= minFs) break;
+      fs *= 0.94;
+    }
+    ctx.textBaseline = "top"; ctx.textAlign = align === "c" ? "center" : "left";
+    lines.forEach((l, i) => ctx.fillText(l, align === "c" ? x + w / 2 : x, y + i * fs * 1.25));
+  }
+  async function drawTranslated(n) {
+    const rec = await ensureLayout(n);                                   // translates the page now if it was not done yet
+    const page = await pdf.getPage(n);
+    const v1 = page.getViewport({ scale: 1 });
+    const s = 1600 / Math.max(v1.width, v1.height);
+    const vp = page.getViewport({ scale: s });
+    const c = document.createElement("canvas"); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: ctx, viewport: vp, intent: "print" }).promise;
+    const FONT = '"Noto Sans Gurmukhi","Raavi","Mukta Mahee",sans-serif';
+    if (rec.scan && rec.text) {
+      ctx.fillStyle = bgAt(c, 4, 4, 30, 30); ctx.fillRect(0, 0, c.width, c.height);
+      ctx.fillStyle = "#1d1d1b";
+      const px = c.width * 0.07, py = c.height * 0.06;
+      fitText(ctx, rec.text, px, py, c.width - 2 * px, c.height - 2 * py, c.width / 26, f => f + "px " + FONT, "l", 8);
+    } else if (rec.blocks) {
+      rec.blocks.forEach((b, i) => {
+        if (b.k) return;
+        const [x1, y1, x2, y2] = b.r;
+        const left = Math.max(0, Math.min(x1, x2) * s - 1), top = Math.max(0, Math.min(y1, y2) * s - 1);
+        const w = Math.min(c.width - left, Math.abs(x2 - x1) * s + 3), h = Math.min(c.height - top, Math.abs(y2 - y1) * s + 3);
+        const bg = bgAt(c, left, top, w, h), ink = inkAt(c, left, top, w, h, bg), st = fontStyleOf(page, b.fn);
+        ctx.fillStyle = bg; ctx.fillRect(left, top, w, h);
+        ctx.fillStyle = ink;
+        fitText(ctx, rec.tr[i] || "", left, top, w, h, Math.max(6, b.fs * s), f => (st.italic ? "italic " : "") + (st.bold ? "700 " : "") + f + "px " + FONT, b.al, 4);
+      });
+    }
+    const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.82));
+    return { jpg: new Uint8Array(await blob.arrayBuffer()), w: v1.width, h: v1.height };
+  }
 
   async function buildExport() {
     const rec = currentId ? await dbGet(currentId) : null;
@@ -504,6 +564,31 @@
     const pages = parsePages($("exPages").value, pdfMain.numPages);
     if (!pages.length) { $("exMsg").textContent = "Koi sahi page number nahi likheya."; return null; }
     $("exMsg").textContent = "PDF ban rahi hai...";
+    if ($("exTr").checked) {
+      if (onPair) { $("exMsg").textContent = "Pehle English wali kitaab kholo (⇄), phir ਪੰਜਾਬੀ PDF banao."; return null; }
+      try { await document.fonts.ready; } catch (_) {}
+      const out = await PDFLib.PDFDocument.create();
+      let k = 0, fail = 0;
+      for (const p of pages) {
+        k++;
+        $("exMsg").textContent = "ਪੰਜਾਬੀ PDF ban rahi hai... " + k + " / " + pages.length + (fail ? " · " + fail + " page English vich reh gaye" : "") + " (app khuli rakho)";
+        let pg;
+        try { pg = await drawTranslated(p); } catch (_) { fail++; }
+        if (pg) {
+          const img = await out.embedJpg(pg.jpg);
+          out.addPage([pg.w, pg.h]).drawImage(img, { x: 0, y: 0, width: pg.w, height: pg.h });
+        } else {                                                         // translation failed (network) → keep the original page
+          const src = await PDFLib.PDFDocument.load(rec.data.slice(0), { ignoreEncryption: true });
+          const [cp] = await out.copyPages(src, [p - 1]); out.addPage(cp);
+        }
+      }
+      const bytes = await out.save();
+      const base = rec.name.replace(/\.pdf$/i, "");
+      const label = pages.length === pdfMain.numPages ? "poori" : pages.length > 6 ? pages.length + "-pages" : "p" + pages.join("-");
+      const name = (base + " - ਪੰਜਾਬੀ - " + label + ".pdf").replace(/[\\/:*?"<>|]/g, "_");
+      $("exMsg").textContent = "Tayaar: " + out.getPageCount() + " pages" + (fail ? " (" + fail + " English vich — net theek hon te dubara banao)" : "") + ".";
+      return { bytes, name };
+    }
     const src = await PDFLib.PDFDocument.load(rec.data.slice(0), { ignoreEncryption: true });
     let pairDoc = null;
     if ($("exPair").checked && rec.pairId) {
@@ -787,6 +872,7 @@
     return g + l === 0 ? 1 : g / (g + l);
   }
   const FALLBACK_MODEL = "google/gemini-3.1-flash-lite";
+  let lastReply = null;   // last raw answer, shown in the error so a failure can be diagnosed from a screenshot
   async function translateOnce(texts, model, strict) {
     const j = await meshFetch("/chat/completions", {
       model,
@@ -794,6 +880,7 @@
                  { role: "user", content: JSON.stringify(texts) }]
     });
     const out = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || "");
+    lastReply = { model, finish: j.choices && j.choices[0] && j.choices[0].finish_reason, out };
     const a = out.indexOf("["), b = out.lastIndexOf("]");
     let arr = null;
     try { arr = JSON.parse(out.slice(a, b + 1)); } catch (_) {
@@ -822,6 +909,7 @@
                  { role: "user", content: text }]
     });
     const out = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || "").trim();
+    lastReply = { model, finish: j.choices && j.choices[0] && j.choices[0].finish_reason, out };
     return out ? [out] : null;
   }
   async function translateChunk(texts) {
@@ -842,7 +930,8 @@
       last = arr || last;
     }
     if (last) return last;
-    throw new Error("ਅਨੁਵਾਦ da jawab theek format vich nahi aaya — ↻ naal dubara try karo");
+    const r = lastReply || {};
+    throw new Error("ਅਨੁਵਾਦ da jawab theek format vich nahi aaya — ↻ naal dubara try karo. [" + (r.model || "?") + " · " + (r.finish || "?") + " · jawab: " + JSON.stringify(String(r.out || "").slice(0, 80)) + "]");
   }
 
   function bgAt(canvas, x, y, w = 1, h = 1) {
@@ -1334,6 +1423,15 @@
     syncBundled();
   })();
 </script>
-<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(()=>{});}</script>
+<script>
+if ("serviceWorker" in navigator) {
+  // a new version takes over → reload once so the new code runs right away (not on the next open)
+  const hadSW = !!navigator.serviceWorker.controller; let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadSW && !reloaded) { reloaded = true; location.reload(); } });
+  navigator.serviceWorker.register("sw.js").then(r => r.update()).catch(() => {});
+}
+// show which version is running (the cache name in sw.js, e.g. pdf-page-v19)
+(async () => { try { const ks = (await caches.keys()).filter(k => k.startsWith("pdf-page-")).sort(); if (ks.length) document.getElementById("appVer").textContent = "App version: " + ks[ks.length - 1].replace("pdf-page-", ""); } catch (_) {} })();
+</script>
 </body>
 </html>
